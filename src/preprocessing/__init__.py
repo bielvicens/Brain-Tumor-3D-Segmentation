@@ -1,14 +1,14 @@
 """Preprocessing pipeline architecture for the BraTS dataset.
 
-This package defines the *architecture* only: a chainable transform
-system (:class:`Transform`, :class:`PreprocessingSample`), a pipeline that
-runs transforms in order (:class:`PreprocessingPipeline`), and validation
-that runs before any transform (:func:`validate_sample`).
+This package provides a chainable transform system
+(:class:`Transform`, :class:`PreprocessingSample`), a pipeline that runs
+transforms in order (:class:`PreprocessingPipeline`), validation that
+runs before any transform (:func:`validate_sample`), and a growing set of
+concrete transforms - so far :class:`ZScoreNormalization` (Module 3.2).
 
-No preprocessing math (normalization, resampling, cropping, padding) is
-implemented here yet - those will be added in a later module as concrete
-``Transform`` subclasses, without requiring any change to the pipeline or
-validation logic defined here.
+Resampling, cropping and padding are not implemented yet; they will be
+added as further ``Transform`` subclasses, without requiring any change
+to the pipeline or validation logic defined here.
 """
 
 from .exceptions import (
@@ -17,6 +17,7 @@ from .exceptions import (
     PreprocessingError,
     TransformError,
 )
+from .normalization import DEFAULT_EPSILON, NormalizationStats, ZScoreNormalization
 from .pipeline import PreprocessingPipeline
 from .transforms import PreprocessingSample, Transform
 from .validation import DEFAULT_CHECKS, validate_sample
@@ -25,6 +26,9 @@ __all__ = [
     "PreprocessingPipeline",
     "PreprocessingSample",
     "Transform",
+    "ZScoreNormalization",
+    "NormalizationStats",
+    "DEFAULT_EPSILON",
     "PreprocessingError",
     "InvalidVolumeError",
     "TransformError",
