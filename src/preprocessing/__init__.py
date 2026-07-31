@@ -23,6 +23,8 @@ from .pipeline import PreprocessingPipeline
 from .resampling import ResamplingInfo, ResamplingTransform, compute_resampled_shape
 from .transforms import PreprocessingSample, Transform
 from .validation import DEFAULT_CHECKS, validate_sample
+from .cropping import CropInfo, CroppingTransform
+from .padding import PaddingInfo, PaddingTransform
 
 __all__ = [
     "PreprocessingPipeline",
@@ -40,4 +42,8 @@ __all__ = [
     "PipelineConfigurationError",
     "validate_sample",
     "DEFAULT_CHECKS",
+    "CropInfo",
+    "CroppingTransform",
+    "PaddingInfo",
+    "PaddingTransform",
 ]

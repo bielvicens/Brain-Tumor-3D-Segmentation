@@ -1,6 +1,7 @@
 """Public API for the BraTS data-reading module."""
 
 from .brats_reader import BraTSReader
+from .dataset import BraTSDataset
 from .exceptions import (
     BraTSDatasetError,
     DatasetRootNotFoundError,
@@ -9,9 +10,11 @@ from .exceptions import (
 )
 from .modality import MRI_MODALITIES, REQUIRED_MODALITIES, Modality
 from .patient import PatientRecord, VolumeMetadata
+from .dataloader import create_dataloader
 
 __all__ = [
     "BraTSReader",
+    "BraTSDataset",
     "BraTSDatasetError",
     "DatasetRootNotFoundError",
     "IncompletePatientError",
@@ -21,4 +24,5 @@ __all__ = [
     "Modality",
     "PatientRecord",
     "VolumeMetadata",
+    "create_dataloader",
 ]
