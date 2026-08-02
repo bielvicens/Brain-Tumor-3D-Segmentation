@@ -1,5 +1,7 @@
-"""Cross-cutting utilities (logging, metrics, etc.) shared across the project."""
+"""Cross-cutting utilities (logging, metrics, checkpoints, early stopping, etc.) shared across the project."""
 
+from .checkpoints import CheckpointData, load_checkpoint, save_checkpoint
+from .early_stopping import EarlyStopping
 from .metrics import (
     DEFAULT_SMOOTH,
     dice_per_class,
@@ -18,4 +20,8 @@ __all__ = [
     "mean_dice",
     "mean_iou",
     "DEFAULT_SMOOTH",
+    "CheckpointData",
+    "save_checkpoint",
+    "load_checkpoint",
+    "EarlyStopping",
 ]
