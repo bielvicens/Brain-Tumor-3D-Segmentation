@@ -11,6 +11,15 @@ from .metrics import (
     mean_dice,
     mean_iou,
 )
+from .config import (
+    CheckpointConfig,
+    DataConfig,
+    EarlyStoppingConfig,
+    ExperimentConfig,
+    ModelConfig,
+    ProjectConfig,
+    TrainingConfig,
+)
 
 __all__ = [
     "dice_score",
@@ -24,4 +33,11 @@ __all__ = [
     "save_checkpoint",
     "load_checkpoint",
     "EarlyStopping",
+    "CheckpointConfig",
+    "DataConfig",
+    "EarlyStoppingConfig",
+    "ExperimentConfig",
+    "ModelConfig",
+    "ProjectConfig",
+    "TrainingConfig",
 ]

@@ -9,6 +9,9 @@ from typing import Dict, Optional
 import torch
 from torch import Tensor, nn
 from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import LRScheduler
+
+from src.utils.early_stopping import EarlyStopping
 
 
 @dataclass
@@ -108,7 +111,11 @@ class Trainer:
         self,
         train_loader: DataLoader,
         val_loader: Optional[DataLoader] = None,
+        *,
         epochs: int = 1,
+        early_stopping: Optional[EarlyStopping] = None,
+        checkpoint_dir: Optional[str | Path] = None,
+        scheduler: Optional[LRScheduler] = None,
     ) -> TrainingHistory:
         """Train the model for ``epochs`` and optionally validate."""
         if epochs <= 0:
@@ -116,13 +123,47 @@ class Trainer:
 
         history = TrainingHistory(train_loss=[], val_loss=[])
 
-        for _ in range(epochs):
+        best_val_loss = float("inf")
+
+        checkpoint_dir_path = None
+        if checkpoint_dir is not None:
+            checkpoint_dir_path = Path(checkpoint_dir)
+            checkpoint_dir_path.mkdir(parents=True, exist_ok=True)
+
+        for epoch in range(epochs):
             train_loss = self.train_epoch(train_loader)
             history.train_loss.append(train_loss)
+
+            val_loss = None
 
             if val_loader is not None:
                 val_loss = self.validate_epoch(val_loader)
                 history.val_loss.append(val_loss)
+
+            if scheduler is not None:
+                scheduler.step()
+
+            if checkpoint_dir_path is not None:
+                self.save_checkpoint(
+                    checkpoint_dir_path / "last.pt",
+                    epoch + 1,
+                    history,
+                )
+
+                if val_loss is not None and val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    self.save_checkpoint(
+                        checkpoint_dir_path / "best.pt",
+                        epoch + 1,
+                        history,
+                    )
+
+            if (
+                early_stopping is not None
+                and val_loss is not None
+                and early_stopping.step(val_loss)
+            ):
+                break
 
         return history
 
