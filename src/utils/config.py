@@ -19,7 +19,7 @@ from pathlib import Path
 class DataConfig:
     """Configuration for dataset loading."""
 
-    dataset_root = Path("data/raw/BraTS/TrainingData")
+    dataset_root: Path = Path("data/raw/BraTS/TrainingData")
     train_split: float = 0.8
     validation_split: float = 0.2
     shuffle: bool = True
