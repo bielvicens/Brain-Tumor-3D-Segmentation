@@ -37,7 +37,7 @@ class ModelConfig:
 
     in_channels: int = 4
     out_channels: int = 4
-    base_channels: int = 4 #32
+    base_channels: int = 32
 
 
 # ============================================================================
