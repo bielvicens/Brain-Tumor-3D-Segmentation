@@ -38,10 +38,12 @@ def make_trainer() -> Trainer:
 def test_train_epoch_returns_finite_loss() -> None:
     trainer = make_trainer()
 
-    loss = trainer.train_epoch(make_loader())
+    loss, dice = trainer.train_epoch(make_loader())
 
     assert isinstance(loss, float)
+    assert isinstance(dice, float)
     assert torch.isfinite(torch.tensor(loss))
+    assert torch.isfinite(torch.tensor(dice))
 
 
 def test_train_epoch_updates_model_parameters() -> None:
@@ -61,10 +63,12 @@ def test_train_epoch_updates_model_parameters() -> None:
 def test_validate_epoch_returns_finite_loss() -> None:
     trainer = make_trainer()
 
-    loss = trainer.validate_epoch(make_loader())
+    loss, dice = trainer.validate_epoch(make_loader())
 
     assert isinstance(loss, float)
+    assert isinstance(dice, float)
     assert torch.isfinite(torch.tensor(loss))
+    assert torch.isfinite(torch.tensor(dice))
 
 
 def test_validate_does_not_update_model_parameters() -> None:
@@ -146,6 +150,8 @@ def test_checkpoint_can_be_saved(tmp_path) -> None:
     history = TrainingHistory(
         train_loss=[1.0],
         val_loss=[0.9],
+        train_dice=[0.75],
+        val_dice=[0.73],
     )
 
     path = trainer.save_checkpoint(

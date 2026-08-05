@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import LRScheduler
 
 from src.utils.early_stopping import EarlyStopping
+from src.utils.metrics import mean_dice
 
 
 @dataclass
@@ -20,6 +21,8 @@ class TrainingHistory:
 
     train_loss: list[float]
     val_loss: list[float]
+    train_dice: list[float]
+    val_dice: list[float]
 
     @property
     def epochs(self) -> int:
@@ -51,12 +54,13 @@ class Trainer:
         self.device = torch.device(device)
         self.model.to(self.device)
 
-    def train_epoch(self, dataloader: DataLoader) -> float:
+    def train_epoch(self, dataloader: DataLoader) -> tuple[float, float]:
         """Run one training epoch and return the mean loss."""
         self.model.train()
 
         total_loss = 0.0
         num_batches = 0
+        total_dice = 0.0
 
         for images, masks in dataloader:
             if masks is None:
@@ -69,24 +73,37 @@ class Trainer:
 
             logits = self.model(images)
             loss = self.criterion(logits, masks)
+            predictions = torch.argmax(logits, dim=1)
+
+            dice = mean_dice(
+                prediction=predictions,
+                target=masks,
+                num_classes=logits.shape[1],
+                include_background=False,
+            )
 
             loss.backward()
             self.optimizer.step()
 
             total_loss += float(loss.detach().item())
+            total_dice += float(dice.item())
             num_batches += 1
 
         if num_batches == 0:
             raise ValueError("Cannot train on an empty dataloader.")
 
-        return total_loss / num_batches
+        return (
+            total_loss / num_batches,
+            total_dice / num_batches,
+        )
 
     @torch.no_grad()
-    def validate_epoch(self, dataloader: DataLoader) -> float:
+    def validate_epoch(self, dataloader: DataLoader) -> tuple[float, float]:
         """Run one validation epoch and return the mean loss."""
         self.model.eval()
 
         total_loss = 0.0
+        total_dice = 0.0
         num_batches = 0
 
         for images, masks in dataloader:
@@ -98,14 +115,26 @@ class Trainer:
 
             logits = self.model(images)
             loss = self.criterion(logits, masks)
+            predictions = torch.argmax(logits, dim=1)
+            
+            dice = mean_dice(
+                prediction=predictions,
+                target=masks,
+                num_classes=logits.shape[1],
+                include_background=False,
+            )
 
             total_loss += float(loss.item())
+            total_dice += float(dice.item())
             num_batches += 1
 
         if num_batches == 0:
             raise ValueError("Cannot validate on an empty dataloader.")
 
-        return total_loss / num_batches
+        return (
+            total_loss / num_batches,
+            total_dice / num_batches,
+        )
 
     def fit(
         self,
@@ -121,7 +150,12 @@ class Trainer:
         if epochs <= 0:
             raise ValueError("epochs must be greater than zero.")
 
-        history = TrainingHistory(train_loss=[], val_loss=[])
+        history = TrainingHistory(
+            train_loss=[],
+            val_loss=[],
+            train_dice=[],
+            val_dice=[],
+        )
 
         best_val_loss = float("inf")
 
@@ -131,14 +165,18 @@ class Trainer:
             checkpoint_dir_path.mkdir(parents=True, exist_ok=True)
 
         for epoch in range(epochs):
-            train_loss = self.train_epoch(train_loader)
+            train_loss, train_dice = self.train_epoch(train_loader)
+
             history.train_loss.append(train_loss)
+            history.train_dice.append(train_dice)
 
             val_loss = None
 
             if val_loader is not None:
-                val_loss = self.validate_epoch(val_loader)
+                val_loss, val_dice = self.validate_epoch(val_loader)
+
                 history.val_loss.append(val_loss)
+                history.val_dice.append(val_dice)
 
             if scheduler is not None:
                 scheduler.step()
@@ -187,6 +225,8 @@ class Trainer:
             checkpoint["history"] = {
                 "train_loss": history.train_loss,
                 "val_loss": history.val_loss,
+                "train_dice": history.train_dice,
+                "val_dice": history.val_dice,
             }
 
         torch.save(checkpoint, path)
