@@ -11,6 +11,7 @@ from .exceptions import (
 from .modality import MRI_MODALITIES, REQUIRED_MODALITIES, Modality
 from .patient import PatientRecord, VolumeMetadata
 from .dataloader import create_dataloader
+from .split import train_validation_split
 
 __all__ = [
     "BraTSReader",
@@ -25,4 +26,5 @@ __all__ = [
     "PatientRecord",
     "VolumeMetadata",
     "create_dataloader",
+    "train_validation_split",
 ]

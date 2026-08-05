@@ -25,6 +25,13 @@ from .transforms import PreprocessingSample, Transform
 from .validation import DEFAULT_CHECKS, validate_sample
 from .cropping import CropInfo, CroppingTransform
 from .padding import PaddingInfo, PaddingTransform
+from .augmentation import (
+    RandomFlip,
+    RandomRotation90,
+    RandomGaussianNoise,
+    RandomGamma,
+    RandomIntensityShift,
+)
 
 __all__ = [
     "PreprocessingPipeline",

@@ -123,3 +123,51 @@ class BraTSDataset(Dataset):
         ).to(dtype=torch.long)
 
         return image, mask
+
+    def preprocess_patient(
+        self,
+        patient_id: str,
+    ) -> PreprocessingSample:
+        """Load and preprocess a patient without converting to tensors.
+
+        This is intended for inference workflows that need access to the
+        processed modalities together with the metadata (affine, spacing,
+        patient id, etc.).
+
+        Args:
+            patient_id: Identifier of the patient to preprocess.
+
+        Returns:
+            Fully preprocessed ``PreprocessingSample``.
+
+        Raises:
+            ValueError:
+                If the patient does not exist.
+        """
+        patient = self.reader.get_patient(patient_id)
+
+        modalities = self.reader.load_modalities(patient)
+
+        segmentation = (
+            self.reader.load_segmentation(patient)
+            if self.include_segmentation
+            else None
+        )
+
+        metadata = self.reader.get_metadata(
+            patient,
+            MRI_MODALITIES[0],
+        )
+
+        sample = PreprocessingSample(
+            patient_id=patient.patient_id,
+            modalities=modalities,
+            segmentation=segmentation,
+            voxel_spacing=metadata.voxel_spacing,
+            affine=metadata.affine,
+        )
+
+        if self.pipeline is not None:
+            sample = self.pipeline(sample)
+
+        return sample

@@ -4,105 +4,70 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import torch
-
-from src.data import BraTSDataset, create_dataloader
-from src.data import train_validation_split
-from src.models import DiceCrossEntropyLoss, Trainer, UNet3D
-from src.preprocessing import PreprocessingPipeline
+from src.builders import (
+    build_dataloader,
+    build_datasets,
+    build_loss,
+    build_model,
+    build_optimizer,
+    build_pipeline,
+)
+from src.models import Trainer
 from src.utils import (
     EarlyStopping,
     ProjectConfig,
 )
 
 
-def build_model(config: ProjectConfig) -> UNet3D:
-    """Build the segmentation model."""
-    return UNet3D(
-        in_channels=config.model.in_channels,
-        out_channels=config.model.out_channels,
-        base_channels=config.model.base_channels,
-    )
-
-
-def build_loss() -> DiceCrossEntropyLoss:
-    """Build the training loss."""
-    return DiceCrossEntropyLoss()
-
-
-def build_optimizer(
-    model: UNet3D,
-    config: ProjectConfig,
-) -> torch.optim.Optimizer:
-    """Build the optimizer."""
-    return torch.optim.Adam(
-        model.parameters(),
-        lr=config.training.learning_rate,
-        weight_decay=config.training.weight_decay,
-    )
-
-
-def build_dataset(
-    config: ProjectConfig,
-) -> BraTSDataset:
-    """Build the training dataset."""
-
-    pipeline = PreprocessingPipeline()
-
-    return BraTSDataset(
-        dataset_root=config.data.dataset_root,
-        pipeline=pipeline,
-    )
-
-
-def build_dataloader(
-    dataset: BraTSDataset,
-    config: ProjectConfig,
-):
-    """Build a DataLoader."""
-
-    return create_dataloader(
-        dataset,
-        batch_size=config.training.batch_size,
-        shuffle=config.data.shuffle,
-        num_workers=config.data.num_workers,
-        pin_memory=config.data.pin_memory,
-        seed=config.experiment.seed,
-    )
-
-
 def train(config: ProjectConfig) -> None:
     """Run a complete training experiment."""
 
-    reader_dataset = build_dataset(config)
-
-    train_ids, val_ids = train_validation_split(
-        reader_dataset.patient_ids,
-        validation_fraction=config.data.validation_split,
-        seed=config.experiment.seed,
+    # ------------------------------------------------------------------
+    # Build preprocessing pipelines
+    # ------------------------------------------------------------------
+    train_pipeline = build_pipeline(
+        config,
+        training=True,
     )
 
-    train_dataset = BraTSDataset(
-        dataset_root=config.data.dataset_root,
-        pipeline=reader_dataset.pipeline,
-        patient_ids=train_ids,
+    validation_pipeline = build_pipeline(
+        config,
+        training=False,
     )
 
-    val_dataset = BraTSDataset(
-        dataset_root=config.data.dataset_root,
-        pipeline=reader_dataset.pipeline,
-        patient_ids=val_ids,
+    # ------------------------------------------------------------------
+    # Build datasets
+    # ------------------------------------------------------------------
+    train_dataset, validation_dataset = build_datasets(
+        config=config,
+        train_pipeline=train_pipeline,
+        validation_pipeline=validation_pipeline,
     )
 
-    train_loader = build_dataloader(train_dataset, config)
+    # ------------------------------------------------------------------
+    # Build dataloaders
+    # ------------------------------------------------------------------
+    train_loader = build_dataloader(
+        train_dataset,
+        config,
+    )
 
-    val_loader = build_dataloader(val_dataset, config)
+    validation_loader = build_dataloader(
+        validation_dataset,
+        config,
+    )
 
+    # ------------------------------------------------------------------
+    # Build training components
+    # ------------------------------------------------------------------
     model = build_model(config)
 
-    criterion = build_loss()
+    criterion = build_loss(config)
 
-    optimizer = build_optimizer(model, config)
+    optimizer = build_optimizer(
+        model,
+        config,
+    )
 
     trainer = Trainer(
         model=model,
@@ -122,23 +87,35 @@ def train(config: ProjectConfig) -> None:
         / config.experiment.name
     )
 
+    # ------------------------------------------------------------------
+    # Train
+    # ------------------------------------------------------------------
     history = trainer.fit(
         train_loader=train_loader,
-        val_loader=val_loader,
+        val_loader=validation_loader,
         epochs=config.training.epochs,
         early_stopping=early_stopping,
         checkpoint_dir=checkpoint_dir,
     )
 
+    # ------------------------------------------------------------------
+    # Summary
+    # ------------------------------------------------------------------
     print()
     print("Training finished.")
     print(f"Epochs completed: {history.epochs}")
 
     if history.train_loss:
-        print(f"Final training loss: {history.train_loss[-1]:.6f}")
+        print(
+            f"Final training loss: "
+            f"{history.train_loss[-1]:.6f}"
+        )
 
     if history.val_loss:
-        print(f"Final validation loss: {history.val_loss[-1]:.6f}")
+        print(
+            f"Final validation loss: "
+            f"{history.val_loss[-1]:.6f}"
+        )
 
 
 def main() -> None:

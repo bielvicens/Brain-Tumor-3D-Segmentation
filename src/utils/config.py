@@ -19,7 +19,7 @@ from pathlib import Path
 class DataConfig:
     """Configuration for dataset loading."""
 
-    dataset_root: Path = Path("data/BraTS2023")
+    dataset_root = Path("data/raw/BraTS/TrainingData")
     train_split: float = 0.8
     validation_split: float = 0.2
     shuffle: bool = True
@@ -37,7 +37,7 @@ class ModelConfig:
 
     in_channels: int = 4
     out_channels: int = 4
-    base_channels: int = 32
+    base_channels: int = 4 #32
 
 
 # ============================================================================
