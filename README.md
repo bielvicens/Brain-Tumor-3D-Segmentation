@@ -28,7 +28,7 @@ Rather than being a simple research prototype, the project aims to provide a mai
 -  Automatic checkpoint saving
 -  Early stopping support
 -  Modular inference pipeline
--  Extensive automated test suite (500+ passing tests)
+-  Extensive automated test suite (520+ passing tests)
 -  Factory builders for reproducible component construction
 -  Clean architecture with clear separation of responsibilities
 
@@ -1018,7 +1018,7 @@ The project includes an extensive automated test suite covering every major comp
 Current status:
 
 ```
-500 passing tests
+520 passing tests
 ```
 
 The test suite includes:

@@ -22,6 +22,7 @@ from src.utils import (
     ProjectConfig,
     load_checkpoint,
 )
+from src.visualization.prediction import plot_prediction
 
 
 def load_patient_sample(
@@ -78,7 +79,11 @@ def predict(
     reader: BraTSReader,
     pipeline,
     patient_id: str,
-) -> np.ndarray:
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    PreprocessingSample,
+]:
     """Predict the segmentation mask for one patient."""
 
     sample = load_patient_sample(
@@ -89,9 +94,17 @@ def predict(
 
     image = sample_to_tensor(sample)
 
-    prediction = predictor.predict_mask(image)
+    prediction, probabilities = (
+        predictor.predict_with_probabilities(
+            image,
+        )
+    )
 
-    return prediction.squeeze(0).cpu().numpy()
+    return (
+        prediction.squeeze(0).cpu().numpy(),
+        probabilities.squeeze(0).cpu().numpy(),
+        sample,
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -161,7 +174,7 @@ def main() -> None:
         device=config.training.device,
     )
 
-    prediction = predict(
+    prediction, probabilities, sample = predict(
         predictor=predictor,
         reader=reader,
         pipeline=pipeline,
@@ -183,7 +196,25 @@ def main() -> None:
         prediction,
     )
 
+    plot_prediction(
+        image=sample.modalities[MRI_MODALITIES[3]],
+        prediction=prediction,
+        ground_truth=None,
+        output_path=args.output / f"{args.patient}_prediction.png",
+    )
+
+    probability_path = (
+    args.output
+    / f"{args.patient}_probabilities.npy"
+)
+
+    np.save(
+        probability_path,
+        probabilities,
+    )
+
     print(f"Prediction saved to: {output_path}")
+    print(f"Probabilities saved to: {probability_path}")
 
 
 if __name__ == "__main__":
