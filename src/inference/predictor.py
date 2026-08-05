@@ -205,8 +205,8 @@ class Predictor:
                 f"Requested device '{resolved}' but CUDA is not available on this machine."
             )
         return resolved
-        @classmethod
-
+    
+    @classmethod
     def from_checkpoint(
         cls,
         checkpoint_path: str | Path,
