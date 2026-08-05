@@ -20,6 +20,8 @@ from src.preprocessing.transforms import (
     PreprocessingSample,
     Transform,
 )
+from .validation import validate_shapes_consistent
+from .exceptions import InvalidVolumeError
 
 logger = logging.getLogger(__name__)
 
@@ -483,4 +485,343 @@ class RandomIntensityShift(Transform):
             modalities=modalities,
             segmentation=sample.segmentation,
             metadata=metadata,
+        )
+
+class RandomCrop3D(Transform):
+    """Randomly crop a fixed-size 3D patch from a preprocessing sample.
+
+    The same crop is applied to every MRI modality and to the segmentation
+    mask, ensuring voxel correspondence is preserved.
+
+    This transform is primarily intended for training, where random spatial
+    sampling improves generalisation while greatly reducing GPU memory
+    requirements compared to using complete MRI volumes.
+
+    Args:
+        crop_size:
+            Desired crop size as ``(depth, height, width)``.
+        probability:
+            Probability of applying the transform.
+        seed:
+            Optional random seed for reproducibility.
+    """
+
+    def __init__(
+        self,
+        crop_size: tuple[int, int, int],
+        probability: float = 1.0,
+        seed: Optional[int] = None,
+    ) -> None:
+
+        self.crop_size = self._validate_crop_size(crop_size)
+
+        if not 0.0 <= probability <= 1.0:
+            raise ValueError(
+                "probability must be between 0 and 1."
+            )
+
+        self.probability = probability
+        self._rng = np.random.default_rng(seed)
+
+    @staticmethod
+    def _validate_crop_size(
+        crop_size: Sequence[int],
+    ) -> tuple[int, int, int]:
+        """Validate the requested crop size."""
+
+        try:
+            values = tuple(int(v) for v in crop_size)
+        except TypeError as exc:
+            raise ValueError(
+                "crop_size must be an iterable of three integers."
+            ) from exc
+
+        if len(values) != 3:
+            raise ValueError(
+                "crop_size must contain exactly three dimensions."
+            )
+
+        if any(v <= 0 for v in values):
+            raise ValueError(
+                "crop_size values must be strictly positive."
+            )
+
+        return values
+
+    def validate_input(
+        self,
+        sample: PreprocessingSample,
+    ) -> None:
+        """Ensure the crop fits inside the volume."""
+
+        validate_shapes_consistent(sample)
+
+        if sample.modalities:
+            shape = next(iter(sample.modalities.values())).shape
+        elif sample.segmentation is not None:
+            shape = sample.segmentation.shape
+        else:
+            raise InvalidVolumeError(
+                f"Patient '{sample.patient_id}' contains no image data."
+            )
+
+        if len(shape) != 3:
+            raise InvalidVolumeError(
+                f"Expected 3D volumes, got shape {shape}."
+            )
+
+        for crop, dim in zip(self.crop_size, shape):
+            if crop > dim:
+                raise InvalidVolumeError(
+                    "Crop size "
+                    f"{self.crop_size} exceeds image shape {shape}."
+                )
+            
+    def apply(
+        self,
+        sample: PreprocessingSample,
+    ) -> PreprocessingSample:
+        """Apply a random 3D crop to every volume in the sample."""
+
+        if self._rng.random() >= self.probability:
+            return sample
+
+        shape = self._reference_shape(sample)
+
+        start = self._random_start_indices(shape)
+
+        slices = tuple(
+            slice(s, s + size)
+            for s, size in zip(start, self.crop_size)
+        )
+
+        logger.debug(
+            (
+                "Applying RandomCrop3D(crop_size=%s, start=%s) "
+                "to patient '%s'."
+            ),
+            self.crop_size,
+            start,
+            sample.patient_id,
+        )
+
+        cropped_modalities = {
+            modality: volume[slices].copy()
+            for modality, volume in sample.modalities.items()
+        }
+
+        cropped_segmentation = None
+        if sample.segmentation is not None:
+            cropped_segmentation = sample.segmentation[slices].copy()
+
+        metadata = dict(sample.metadata)
+        metadata.setdefault(
+            "augmentations",
+            [],
+        ).append(
+            {
+                "name": "RandomCrop3D",
+                "crop_size": self.crop_size,
+                "start": start,
+            }
+        )
+
+        return sample.replace(
+            modalities=cropped_modalities,
+            segmentation=cropped_segmentation,
+            metadata=metadata,
+        )
+
+    def _random_start_indices(
+        self,
+        shape: tuple[int, int, int],
+    ) -> tuple[int, int, int]:
+        """Generate random crop start coordinates."""
+
+        starts: list[int] = []
+
+        for dim, crop in zip(shape, self.crop_size):
+
+            if crop > dim:
+                raise InvalidVolumeError(
+                    f"Crop size {self.crop_size} exceeds image shape {shape}."
+                )
+
+            elif dim == crop:
+                starts.append(0)
+
+            else:
+                starts.append(
+                    int(
+                        self._rng.integers(
+                            0,
+                            dim - crop + 1,
+                        )
+                    )
+                )
+
+        return tuple(starts)
+
+    @staticmethod
+    def _reference_shape(
+        sample: PreprocessingSample,
+    ) -> tuple[int, int, int]:
+        """Return the common volume shape."""
+
+        if sample.modalities:
+            return tuple(
+                next(
+                    iter(
+                        sample.modalities.values()
+                    )
+                ).shape
+            )
+
+        if sample.segmentation is not None:
+            return tuple(sample.segmentation.shape)
+
+        raise InvalidVolumeError(
+            f"Patient '{sample.patient_id}' contains no image data."
+        )
+class CenterCrop3D(Transform):
+    """Crop a fixed-size 3D patch from the centre of a preprocessing sample.
+
+    The same crop is applied to every MRI modality and to the segmentation
+    mask, preserving voxel correspondence.
+
+    This transform is intended for validation and inference, where
+    deterministic preprocessing is required.
+
+    Args:
+        crop_size:
+            Desired crop size as ``(depth, height, width)``.
+    """
+
+    def __init__(
+        self,
+        crop_size: tuple[int, int, int],
+    ) -> None:
+
+        self.crop_size = self._validate_crop_size(crop_size)
+
+    @staticmethod
+    def _validate_crop_size(
+        crop_size: Sequence[int],
+    ) -> tuple[int, int, int]:
+        """Validate the requested crop size."""
+
+        try:
+            values = tuple(int(v) for v in crop_size)
+        except TypeError as exc:
+            raise ValueError(
+                "crop_size must be an iterable of three integers."
+            ) from exc
+
+        if len(values) != 3:
+            raise ValueError(
+                "crop_size must contain exactly three dimensions."
+            )
+
+        if any(v <= 0 for v in values):
+            raise ValueError(
+                "crop_size values must be strictly positive."
+            )
+
+        return values
+
+    def validate_input(
+        self,
+        sample: PreprocessingSample,
+    ) -> None:
+        """Ensure the crop fits inside the volume."""
+
+        validate_shapes_consistent(sample)
+
+        shape = self._reference_shape(sample)
+
+        if len(shape) != 3:
+            raise InvalidVolumeError(
+                f"Expected 3D volumes, got shape {shape}."
+            )
+
+        for crop, dim in zip(self.crop_size, shape):
+            if crop > dim:
+                raise InvalidVolumeError(
+                    "Crop size "
+                    f"{self.crop_size} exceeds image shape {shape}."
+                )
+
+    def apply(
+        self,
+        sample: PreprocessingSample,
+    ) -> PreprocessingSample:
+        """Crop the centre of the sample."""
+
+        shape = self._reference_shape(sample)
+
+        start = tuple(
+            (dim - crop) // 2
+            for dim, crop in zip(shape, self.crop_size)
+        )
+
+        slices = tuple(
+            slice(s, s + crop)
+            for s, crop in zip(start, self.crop_size)
+        )
+
+        logger.debug(
+            (
+                "Applying CenterCrop3D(crop_size=%s) "
+                "to patient '%s'."
+            ),
+            self.crop_size,
+            sample.patient_id,
+        )
+
+        cropped_modalities = {
+            modality: volume[slices].copy()
+            for modality, volume in sample.modalities.items()
+        }
+
+        cropped_segmentation = None
+        if sample.segmentation is not None:
+            cropped_segmentation = sample.segmentation[slices].copy()
+
+        metadata = dict(sample.metadata)
+        metadata.setdefault(
+            "preprocessing",
+            [],
+        ).append(
+            {
+                "name": "CenterCrop3D",
+                "crop_size": self.crop_size,
+            }
+        )
+
+        return sample.replace(
+            modalities=cropped_modalities,
+            segmentation=cropped_segmentation,
+            metadata=metadata,
+        )
+
+    @staticmethod
+    def _reference_shape(
+        sample: PreprocessingSample,
+    ) -> tuple[int, int, int]:
+        """Return the common volume shape."""
+
+        if sample.modalities:
+            return tuple(
+                next(
+                    iter(
+                        sample.modalities.values()
+                    )
+                ).shape
+            )
+
+        if sample.segmentation is not None:
+            return tuple(sample.segmentation.shape)
+
+        raise InvalidVolumeError(
+            f"Patient '{sample.patient_id}' contains no image data."
         )

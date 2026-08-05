@@ -121,7 +121,11 @@ class Transform(ABC):
         """
         raise NotImplementedError
 
-    def __call__(self, sample: PreprocessingSample) -> PreprocessingSample:
+    def __call__(
+        self,
+        sample: PreprocessingSample,
+    ) -> PreprocessingSample:
+        self.validate_input(sample)
         return self.apply(sample)
 
     def __repr__(self) -> str:

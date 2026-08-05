@@ -19,6 +19,8 @@ from src.preprocessing import (
     RandomGaussianNoise,
     RandomGamma,
     RandomIntensityShift,
+    RandomCrop3D,
+    CenterCrop3D,
 )
 from src.utils import ProjectConfig
 from src.data import BraTSDataset, train_validation_split
@@ -58,12 +60,21 @@ def build_pipeline(
     if training:
         transforms.extend(
             [
+                RandomCrop3D(
+                    crop_size=(128, 128, 128),
+                ),
                 RandomFlip(),
                 RandomRotation90(),
                 RandomGaussianNoise(),
                 RandomGamma(),
                 RandomIntensityShift(),
             ]
+        )
+    else:
+        transforms.append(
+            CenterCrop3D(
+                crop_size=(128, 128, 128),
+            )
         )
 
     return PreprocessingPipeline(transforms)

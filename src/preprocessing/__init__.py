@@ -31,6 +31,8 @@ from .augmentation import (
     RandomGaussianNoise,
     RandomGamma,
     RandomIntensityShift,
+    RandomCrop3D,
+    CenterCrop3D,
 )
 
 __all__ = [
@@ -53,4 +55,11 @@ __all__ = [
     "CroppingTransform",
     "PaddingInfo",
     "PaddingTransform",
+    "RandomFlip",
+    "RandomRotation90",
+    "RandomGaussianNoise",
+    "RandomGamma",
+    "RandomIntensityShift",
+    "RandomCrop3D",
+    "CenterCrop3D",
 ]

@@ -104,6 +104,6 @@ def test_build_pipeline_contains_expected_transforms() -> None:
 
     transforms = list(pipeline)
 
-    assert len(transforms) == 2
+    assert len(transforms) == 3
     assert isinstance(transforms[0], ZScoreNormalization)
     assert isinstance(transforms[1], ResamplingTransform)
