@@ -9,11 +9,6 @@ import numpy as np
 
 import logging
 
-logger = logging.getLogger(__name__)
-logger.info(
-    "Prediction figure saved to '%s'.",
-    output_path,
-)
 
 
 def plot_prediction(
@@ -141,6 +136,11 @@ def plot_prediction(
             output_path,
             dpi=150,
             bbox_inches="tight",
+        )
+        logger = logging.getLogger(__name__)
+        logger.info(
+            "Prediction figure saved to '%s'.",
+            output_path,
         )
         plt.close(fig)
         return output_path
