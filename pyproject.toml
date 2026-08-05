@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "brain-tumor-3d-segmentation"
+version = "1.0.0"
+description = "A modular PyTorch framework for 3D brain tumor segmentation using the BraTS dataset."
+readme = "README.md"
+requires-python = ">=3.11"
+
+authors = [
+    { name = "Biel Vicens" }
+]
+
+license = { file = "LICENSE" }
+
+keywords = [
+    "deep-learning",
+    "medical-imaging",
+    "brain-tumor",
+    "segmentation",
+    "3d-unet",
+    "pytorch",
+    "brats",
+    "computer-vision",
+    "biomedical-engineering"
+]
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
+
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.11",
+    "torch>=2.2",
+    "torchvision>=0.17",
+    "nibabel>=5.2",
+    "scikit-image>=0.22",
+    "pandas>=2.2",
+    "matplotlib>=3.8",
+    "tqdm>=4.66",
+    "typing_extensions>=4.9"
+]
+
+[project.optional-dependencies]
+
+dev = [
+    "pytest>=8.2",
+    "pytest-cov>=5.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+markers = [
+    "slow: marks slow integration tests"
+]
