@@ -114,6 +114,24 @@ class Predictor:
         logits = self.predict_logits(x)
         return torch.softmax(logits, dim=1)
 
+    def predict_with_probabilities(
+        self,
+        x: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return both the predicted mask and the class probabilities."""
+
+        probabilities = self.predict_probabilities(x)
+        prediction = torch.argmax(
+            probabilities,
+            dim=1,
+        ).to(torch.long)
+
+        if x.dim() == 4:
+            prediction = prediction.squeeze(0)
+            probabilities = probabilities.squeeze(0)
+
+        return prediction, probabilities
+
     def predict_mask(self, x: torch.Tensor) -> torch.Tensor:
         """Run the model and return the final integer segmentation mask.
 
