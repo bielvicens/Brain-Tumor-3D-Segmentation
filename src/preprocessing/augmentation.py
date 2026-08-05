@@ -146,15 +146,7 @@ class RandomRotation90(Transform):
 
         k = int(self._rng.integers(1, 4))
 
-        possible_axes = (
-            (0, 1),
-            (0, 2),
-            (1, 2),
-        )
-
-        axes = possible_axes[
-            int(self._rng.integers(0, len(possible_axes)))
-        ]
+        axes = (0, 1)
 
         logger.debug(
             (
@@ -200,6 +192,7 @@ class RandomRotation90(Transform):
             segmentation=segmentation,
             metadata=metadata,
         )
+    
 class RandomGaussianNoise(Transform):
     """Randomly add Gaussian noise to every MRI modality.
 
