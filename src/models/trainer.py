@@ -54,7 +54,7 @@ class Trainer:
         self.device = torch.device(device)
         self.model.to(self.device)
 
-    def train_epoch(self, dataloader: DataLoader) -> tuple[float, float]:
+    def train_epoch(self, dataloader: DataLoader, progress_bar=None, epoch=0,epochs=1) -> tuple[float, float]:
         """Run one training epoch and return the mean loss."""
         self.model.train()
 
@@ -88,6 +88,14 @@ class Trainer:
             total_loss += float(loss.detach().item())
             total_dice += float(dice.item())
             num_batches += 1
+
+            if progress_bar is not None:
+                progress_bar.update(1)
+                progress_bar.set_postfix(
+                    epoch=f"{epoch+1}/{epochs}",
+                    loss=f"{loss.item():.4f}",
+                    lr=f"{self.optimizer.param_groups[0]['lr']:.2e}",
+                )
 
         if num_batches == 0:
             raise ValueError("Cannot train on an empty dataloader.")
@@ -164,8 +172,24 @@ class Trainer:
             checkpoint_dir_path = Path(checkpoint_dir)
             checkpoint_dir_path.mkdir(parents=True, exist_ok=True)
 
+        from tqdm.auto import tqdm
+
+        total_steps = epochs * len(train_loader)
+
+        progress_bar = tqdm(
+            total=total_steps,
+            desc="Training",
+            unit="batch",
+            dynamic_ncols=True,
+        )
+
         for epoch in range(epochs):
-            train_loss, train_dice = self.train_epoch(train_loader)
+            train_loss, train_dice = self.train_epoch(
+                train_loader,
+                progress_bar=progress_bar,
+                epoch=epoch,
+                epochs=epochs,
+            )
 
             history.train_loss.append(train_loss)
             history.train_dice.append(train_dice)
@@ -202,6 +226,7 @@ class Trainer:
                 and early_stopping.step(val_loss)
             ):
                 break
+        progress_bar.close()
 
         return history
 

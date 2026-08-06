@@ -51,7 +51,7 @@ class TrainingConfig:
     epochs: int = 100
     batch_size: int = 2
     learning_rate: float = 1e-4
-    weight_decay: float = 0.0
+    weight_decay: float =  1e-5
     device: str = "cpu"
 
 
