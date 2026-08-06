@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader
 from src.builders import (
     build_datasets,
     build_model,
+    build_pipeline,
 )
 from src.utils import (
     ProjectConfig,
@@ -95,13 +96,24 @@ def main() -> None:
 
     config = ProjectConfig()
 
-    dataset = build_datasets(
-        config=config,
-        split="validation",
+    train_pipeline = build_pipeline(
+        config,
+        training=True,
+    )
+
+    validation_pipeline = build_pipeline(
+        config,
+        training=False,
+    )
+
+    _, validation_dataset = build_datasets(
+        config,
+        train_pipeline,
+        validation_pipeline,
     )
 
     dataloader = DataLoader(
-        dataset,
+        validation_dataset,
         batch_size=1,
         shuffle=False,
     )

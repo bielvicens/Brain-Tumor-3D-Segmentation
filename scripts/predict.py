@@ -22,7 +22,7 @@ from src.utils import (
     ProjectConfig,
     load_checkpoint,
 )
-from src.visualization.prediction import plot_prediction
+from src.visualization.prediction import plot_prediction, plot_probabilities
 
 
 def load_patient_sample(
@@ -211,6 +211,13 @@ def main() -> None:
     np.save(
         probability_path,
         probabilities,
+    )
+
+    plot_probabilities(
+        image=sample.modalities[MRI_MODALITIES[0]],
+        probabilities=probabilities,
+        output_path=args.output /
+            f"{args.patient}_probabilities.png",
     )
 
     print(f"Prediction saved to: {output_path}")

@@ -146,4 +146,81 @@ def plot_prediction(
         return output_path
 
     plt.close(fig)
+
+def plot_probabilities(
+    image: np.ndarray,
+    probabilities: np.ndarray,
+    *,
+    slice_index: int | None = None,
+    output_path: str | Path | None = None,
+) -> None:
+    """
+    Plot the probability map for every class.
+
+    probabilities shape:
+        (num_classes, H, W, D)
+    """
+
+    if probabilities.ndim != 4:
+        raise ValueError(
+            "probabilities must have shape (C,H,W,D)."
+        )
+
+    if slice_index is None:
+        slice_index = probabilities.shape[-1] // 2
+
+    class_names = [
+        "Background",
+        "NCR",
+        "ED",
+        "ET",
+    ]
+
+    fig, axes = plt.subplots(
+        1,
+        probabilities.shape[0] + 1,
+        figsize=(5 * (probabilities.shape[0] + 1), 5),
+    )
+
+    axes[0].imshow(
+        image[:, :, slice_index],
+        cmap="gray",
+    )
+    axes[0].set_title("MRI")
+
+    for c in range(probabilities.shape[0]):
+
+        prob_slice = probabilities[c, :, :, slice_index]
+
+        axes[c + 1].imshow(
+            prob_slice,
+            cmap="viridis",
+            vmin=0,
+            vmax=1,
+        )
+
+        axes[c + 1].set_title(
+            f"{class_names[c]}\nProbability"
+        )
+
+    for ax in axes:
+        ax.axis("off")
+
+    plt.tight_layout()
+
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        plt.savefig(
+            output_path,
+            dpi=150,
+            bbox_inches="tight",
+        )
+
+    plt.show()
+    plt.close(fig)
     return None

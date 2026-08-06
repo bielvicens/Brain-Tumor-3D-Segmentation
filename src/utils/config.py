@@ -64,8 +64,8 @@ class CheckpointConfig:
     """Checkpoint configuration."""
 
     directory: Path = Path("checkpoints")
-    best_model_name: str = "best_model.pt"
-    last_model_name: str = "last_model.pt"
+    best_model_name: str = "best.pt"
+    last_model_name: str = "last.pt"
     save_best_only: bool = False
 
 
