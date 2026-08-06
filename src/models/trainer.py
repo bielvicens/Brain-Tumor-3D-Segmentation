@@ -11,6 +11,10 @@ from torch import Tensor, nn
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import LRScheduler
 
+import json
+
+import matplotlib.pyplot as plt
+
 from src.utils.early_stopping import EarlyStopping
 from src.utils.metrics import mean_dice
 
@@ -228,6 +232,17 @@ class Trainer:
                 break
         progress_bar.close()
 
+        if checkpoint_dir_path is not None:
+            self.save_history(
+                history,
+                checkpoint_dir_path,
+            )
+
+            self.save_training_plots(
+                history,
+                checkpoint_dir_path,
+            )
+
         return history
 
     def save_checkpoint(
@@ -255,4 +270,102 @@ class Trainer:
             }
 
         torch.save(checkpoint, path)
+    def save_history(
+        self,
+        history: TrainingHistory,
+        output_dir: str | Path,
+    ) -> Path:
+        """Save the training history as a JSON file."""
+
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        history_path = output_dir / "history.json"
+
+        with history_path.open("w") as f:
+            json.dump(
+                {
+                    "train_loss": history.train_loss,
+                    "val_loss": history.val_loss,
+                    "train_dice": history.train_dice,
+                    "val_dice": history.val_dice,
+                },
+                f,
+                indent=4,
+            )
+
+        return history_path
+
+
+    def save_training_plots(
+        self,
+        history: TrainingHistory,
+        output_dir: str | Path,
+    ) -> None:
+        """Save loss and Dice curves."""
+
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        #
+        # LOSS
+        #
+
+        plt.figure(figsize=(7,5))
+
+        plt.plot(
+            history.train_loss,
+            label="Train",
+        )
+
+        if history.val_loss:
+            plt.plot(
+                history.val_loss,
+                label="Validation",
+            )
+
+        plt.xlabel("Epoch")
+        plt.ylabel("Loss")
+        plt.title("Training Loss")
+        plt.grid(True)
+        plt.legend()
+
+        plt.savefig(
+            output_dir / "loss.png",
+            dpi=200,
+            bbox_inches="tight",
+        )
+
+        plt.close()
+
+        #
+        # DICE
+        #
+
+        plt.figure(figsize=(7,5))
+
+        plt.plot(
+            history.train_dice,
+            label="Train",
+        )
+
+        if history.val_dice:
+            plt.plot(
+                history.val_dice,
+                label="Validation",
+            )
+
+        plt.xlabel("Epoch")
+        plt.ylabel("Dice")
+        plt.title("Training Dice")
+        plt.grid(True)
+        plt.legend()
+
+        plt.savefig(
+            output_dir / "dice.png",
+            dpi=200,
+            bbox_inches="tight",
+        )
+
+        plt.close()
         return path
