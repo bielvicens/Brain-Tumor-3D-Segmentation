@@ -270,6 +270,9 @@ class Trainer:
             }
 
         torch.save(checkpoint, path)
+
+        return path
+    
     def save_history(
         self,
         history: TrainingHistory,
@@ -368,4 +371,3 @@ class Trainer:
         )
 
         plt.close()
-        return path
