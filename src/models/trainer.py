@@ -154,6 +154,8 @@ class Trainer:
         val_loader: Optional[DataLoader] = None,
         *,
         epochs: int = 1,
+        start_epoch: int = 0,
+        history: Optional[TrainingHistory] = None,
         early_stopping: Optional[EarlyStopping] = None,
         checkpoint_dir: Optional[str | Path] = None,
         scheduler: Optional[LRScheduler] = None,
@@ -162,12 +164,13 @@ class Trainer:
         if epochs <= 0:
             raise ValueError("epochs must be greater than zero.")
 
-        history = TrainingHistory(
-            train_loss=[],
-            val_loss=[],
-            train_dice=[],
-            val_dice=[],
-        )
+        if history is None:
+            history = TrainingHistory(
+                train_loss=[],
+                val_loss=[],
+                train_dice=[],
+                val_dice=[],
+            )
 
         best_val_loss = float("inf")
 
@@ -187,7 +190,7 @@ class Trainer:
             dynamic_ncols=True,
         )
 
-        for epoch in range(epochs):
+        for epoch in range(start_epoch, epochs):
             train_loss, train_dice = self.train_epoch(
                 train_loader,
                 progress_bar=progress_bar,

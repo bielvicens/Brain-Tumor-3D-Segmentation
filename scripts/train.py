@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import torch
+
 from src.builders import (
     build_dataloader,
     build_datasets,
@@ -87,15 +89,52 @@ def train(config: ProjectConfig) -> None:
         / config.experiment.name
     )
 
+    last_checkpoint = checkpoint_dir / "last.pt"
+
+    start_epoch = 0
+    history = None
+
+    if last_checkpoint.exists():
+
+        print(f"Resuming from {last_checkpoint}")
+
+        checkpoint = torch.load(
+            last_checkpoint,
+            map_location=config.training.device,
+        )
+
+        model.load_state_dict(
+            checkpoint["model_state_dict"]
+        )
+
+        optimizer.load_state_dict(
+            checkpoint["optimizer_state_dict"]
+        )
+
+        start_epoch = checkpoint["epoch"]
+
+        h = checkpoint["history"]
+
+        history = TrainingHistory(
+            train_loss=h["train_loss"],
+            val_loss=h["val_loss"],
+            train_dice=h["train_dice"],
+            val_dice=h["val_dice"],
+        )
+
+        print(f"Resuming at epoch {start_epoch}")
+
     # ------------------------------------------------------------------
     # Train
     # ------------------------------------------------------------------
-    history = trainer.fit(
+    trainer.fit(
         train_loader=train_loader,
-        val_loader=validation_loader,
+        val_loader=val_loader,
         epochs=config.training.epochs,
-        early_stopping=early_stopping,
+        start_epoch=start_epoch,
+        history=history,
         checkpoint_dir=checkpoint_dir,
+        early_stopping=early_stopping,
     )
 
     # ------------------------------------------------------------------
