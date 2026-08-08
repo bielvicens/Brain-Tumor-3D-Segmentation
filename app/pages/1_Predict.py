@@ -18,7 +18,19 @@ from src.builders import build_model, build_pipeline
 from src.data import BraTSReader, Modality
 from src.inference import Predictor
 from src.utils import ProjectConfig, load_checkpoint
-
+from src.ui.theme import (
+    inject_theme,
+    render_page_header,
+    render_status_banner,
+    render_sidebar_brand,       
+    render_section_label,       
+    render_stat_grid,           
+    render_ruler,               
+    render_panel_label,         
+    render_legend,              
+    style_dark_figure,          
+    style_colorbar              
+)
 # --- BraTS class legend (labels + a fixed, professional discrete palette) ---
 # Class 0 (background) is intentionally excluded: it's masked out of the
 # overlay entirely rather than tinted, so only the tumor sub-regions show.
@@ -34,6 +46,8 @@ st.set_page_config(
     page_icon="🔍",
     layout="wide",
 )
+
+inject_theme()
 
 st.markdown(
     """
@@ -102,15 +116,20 @@ def _window_for_display(volume_slice: np.ndarray) -> np.ndarray:
 
 
 # --- Page header ------------------------------------------------------
-st.title("🔍 Predict")
-st.write("Run the trained 3D U-Net on a patient and inspect the segmentation.")
+render_page_header(
+    eyebrow="INFERENCE",
+    icon="🔍", 
+    title="Predict", 
+    subtitle="Run the trained 3D U-Net on a patient and inspect the segmentation."
+)
 
 reader, pipeline = load_reader()
 patient_ids = list_patient_ids(reader)
 available_checkpoints = list_available_checkpoints()
 
 with st.sidebar:
-    st.header("Settings")
+    render_sidebar_brand(subtitle="Inference")
+    render_section_label("Settings")
 
     if not patient_ids:
         st.error("No patients found under the configured dataset root.")
@@ -153,16 +172,20 @@ if "prediction" in st.session_state and st.session_state.get("predicted_patient_
     probabilities = st.session_state["probabilities"]
     sample = st.session_state["sample"]
 
-    st.success(f"Inference completed for **{patient_id}**.")
+    # Banner d'èxit personalitzat
+    render_status_banner("success", f"Inference completed for <strong>{patient_id}</strong>.")
 
-    metric_columns = st.columns(3)
-    metric_columns[0].metric("Prediction shape", " × ".join(str(d) for d in prediction.shape))
-    metric_columns[1].metric("Probabilities shape", " × ".join(str(d) for d in probabilities.shape))
     tumor_voxels = int(np.sum(prediction > 0))
-    metric_columns[2].metric("Predicted tumor voxels", f"{tumor_voxels:,}")
 
-    st.divider()
+    # Graella de mètriques estilitzada
+    render_stat_grid([
+        ("Prediction shape", " × ".join(str(d) for d in prediction.shape), None, None),
+        ("Probabilities shape", " × ".join(str(d) for d in probabilities.shape), None, None),
+        ("Predicted tumor", f"{tumor_voxels:,}", "#34c9c2", "Total voxels")
+    ])
 
+    # Separador en forma de regle de medició mèdic
+    render_ruler()
     control_columns = st.columns([2, 1])
     with control_columns[0]:
         selected_modality = st.selectbox(
@@ -181,24 +204,21 @@ if "prediction" in st.session_state and st.session_state.get("predicted_patient_
     display_columns = st.columns(3)
 
     with display_columns[0]:
-        st.subheader(selected_modality.value.upper())
+        render_panel_label(selected_modality.value.upper())
         st.image(image_slice, clamp=True, use_container_width=True)
 
     with display_columns[1]:
-        st.subheader("Segmentation overlay")
+        render_panel_label("Segmentation overlay")
         fig, ax = plt.subplots(figsize=(5, 5))
         ax.imshow(image_slice, cmap="gray")
         masked_prediction = np.ma.masked_where(prediction_slice == 0, prediction_slice)
         ax.imshow(masked_prediction, cmap=OVERLAY_CMAP, vmin=1, vmax=3, alpha=0.55)
         ax.axis("off")
+        style_dark_figure(fig, ax)
         st.pyplot(fig, use_container_width=True)
         plt.close(fig)
 
-        legend_html = " &nbsp; ".join(
-            f'<span class="legend-swatch" style="background:{color}"></span>{code} ({label})'
-            for code, label, color in CLASS_INFO.values()
-        )
-        st.markdown(legend_html, unsafe_allow_html=True)
+        render_legend()
 
     with display_columns[2]:
         class_options = list(CLASS_INFO.keys())
@@ -207,7 +227,7 @@ if "prediction" in st.session_state and st.session_state.get("predicted_patient_
             class_options,
             format_func=lambda c: f"{CLASS_INFO[c][0]} ({CLASS_INFO[c][1]})",
         )
-        st.subheader(f"P({CLASS_INFO[probability_class][0]})")
+        render_panel_label(f"P({CLASS_INFO[probability_class][0]})")
         fig, ax = plt.subplots(figsize=(5, 5))
         prob_map = ax.imshow(
             probabilities[probability_class, :, :, slice_index], cmap="viridis", vmin=0, vmax=1
@@ -217,4 +237,7 @@ if "prediction" in st.session_state and st.session_state.get("predicted_patient_
         st.pyplot(fig, use_container_width=True)
         plt.close(fig)
 else:
-    st.info("Select a patient and checkpoint in the sidebar, then run a prediction.")
+    render_status_banner(
+        kind="info", 
+        message_html="Select a patient and checkpoint in the sidebar, then run a prediction."
+    )
