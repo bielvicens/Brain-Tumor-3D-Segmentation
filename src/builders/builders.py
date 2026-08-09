@@ -62,6 +62,9 @@ def build_pipeline(
             [
                 RandomCrop3D(
                     crop_size=(128, 128, 128),
+                    probability=1.0,
+                    tumor_probability=0.60,
+                    ncr_probability=0.20,
                 ),
                 RandomFlip(),
                 RandomRotation90(),
@@ -69,12 +72,6 @@ def build_pipeline(
                 RandomGamma(),
                 RandomIntensityShift(),
             ]
-        )
-    else:
-        transforms.append(
-            CenterCrop3D(
-                crop_size=(128, 128, 128),
-            )
         )
 
     return PreprocessingPipeline(transforms)

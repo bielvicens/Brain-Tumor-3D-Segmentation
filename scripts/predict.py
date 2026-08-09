@@ -23,6 +23,7 @@ from src.utils import (
     load_checkpoint,
 )
 from src.visualization.prediction import plot_prediction, plot_probabilities
+from src.inference.sliding_window import SlidingWindowInference
 
 
 def load_patient_sample(
@@ -94,11 +95,21 @@ def predict(
 
     image = sample_to_tensor(sample)
 
-    prediction, probabilities = (
-        predictor.predict_with_probabilities(
-            image,
-        )
+    sliding_window = SlidingWindowInference(
+        patch_size=(128, 128, 128),
+        overlap=0.5,
+        device=predictor.device,
     )
+
+    probabilities = sliding_window.predict(
+        model=predictor.model,
+        volume=image,
+    )
+
+    prediction = torch.argmax(
+        probabilities,
+        dim=0,
+    ).long()
 
     return (
         prediction.squeeze(0).cpu().numpy(),

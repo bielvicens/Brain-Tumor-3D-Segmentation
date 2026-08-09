@@ -125,19 +125,7 @@ class Up3D(nn.Module):
 
 
 class UNet3D(nn.Module):
-    """3D U-Net for volumetric medical image segmentation.
-
-    Args:
-        in_channels: Number of input modalities/channels.
-        out_channels: Number of output segmentation classes.
-        base_channels: Number of channels in the first encoder level.
-
-    Input:
-        Tensor of shape ``(N, C, D, H, W)``.
-
-    Output:
-        Tensor of shape ``(N, out_channels, D, H, W)`` containing raw logits.
-    """
+    """3D U-Net for volumetric medical image segmentation."""
 
     def __init__(
         self,
@@ -159,6 +147,7 @@ class UNet3D(nn.Module):
         self.in_channels = in_channels
         self.out_channels = out_channels
 
+        # Encoder
         self.inc = DoubleConv3D(
             in_channels,
             base_channels,
@@ -179,37 +168,45 @@ class UNet3D(nn.Module):
             base_channels * 8,
         )
 
+        # Bottleneck
         self.bottleneck = DoubleConv3D(
             base_channels * 8,
             base_channels * 16,
         )
 
+        # Decoder
+        #
+        # x5: 1/8 resolution
+        # x4: 1/8 resolution
+        # x3: 1/4 resolution
+        # x2: 1/2 resolution
+        # x1: full resolution
+        #
+        # Therefore:
+        # x5 -> x3
+        # -> x2
+        # -> x1
+
         self.up1 = Up3D(
             base_channels * 16,
-            base_channels * 8,
+            base_channels * 4,
             base_channels * 8,
         )
 
         self.up2 = Up3D(
             base_channels * 8,
-            base_channels * 4,
+            base_channels * 2,
             base_channels * 4,
         )
 
         self.up3 = Up3D(
             base_channels * 4,
-            base_channels * 2,
-            base_channels * 2,
-        )
-
-        self.up4 = Up3D(
-            base_channels * 2,
             base_channels,
-            base_channels,
+            base_channels * 2,
         )
 
         self.out_conv = nn.Conv3d(
-            base_channels,
+            base_channels * 2,
             out_channels,
             kernel_size=1,
         )
@@ -229,16 +226,17 @@ class UNet3D(nn.Module):
                 f"got {x.shape[1]}."
             )
 
-        x1 = self.inc(x)
-        x2 = self.down1(x1)
-        x3 = self.down2(x2)
-        x4 = self.down3(x3)
-        x5 = self.bottleneck(x4)
+        # Encoder
+        x1 = self.inc(x)       # 128³
+        x2 = self.down1(x1)    # 64³
+        x3 = self.down2(x2)    # 32³
+        x4 = self.down3(x3)    # 16³
+        x5 = self.bottleneck(x4)  # 16³
 
-        x = self.up1(x5, x4)
-        x = self.up2(x, x3)
-        x = self.up3(x, x2)
-        x = self.up4(x, x1)
+        # Decoder
+        x = self.up1(x5, x3)   # 32³
+        x = self.up2(x, x2)    # 64³
+        x = self.up3(x, x1)    # 128³
 
         return self.out_conv(x)
 
