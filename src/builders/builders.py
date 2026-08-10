@@ -63,8 +63,8 @@ def build_pipeline(
                 RandomCrop3D(
                     crop_size=(128, 128, 128),
                     probability=1.0,
-                    tumor_probability=0.60,
-                    ncr_probability=0.20,
+                    tumor_probability=0.7,
+                    ncr_probability=0.35,
                 ),
                 RandomFlip(),
                 RandomRotation90(),
