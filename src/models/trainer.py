@@ -51,16 +51,21 @@ class Trainer:
         self.model = model
         self.optimizer = optimizer
         self.criterion = criterion
-        self.scaler = torch.amp.GradScaler(
-            "cuda",
-            enabled=self.device.type == "cuda",
-        )
 
+        # Resolve device FIRST.
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
 
         self.device = torch.device(device)
+
+        # Move model to selected device.
         self.model.to(self.device)
+
+        # Mixed precision scaler.
+        self.scaler = torch.amp.GradScaler(
+            "cuda",
+            enabled=self.device.type == "cuda",
+        )
 
     def train_epoch(
         self,
