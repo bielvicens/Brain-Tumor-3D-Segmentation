@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 from typing import Optional
+from typing import Sequence
 
 import numpy as np
 

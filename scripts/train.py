@@ -14,7 +14,8 @@ from src.builders import (
     build_optimizer,
     build_pipeline,
 )
-from src.models import Trainer
+from src.models import Trainer, TrainingHistory
+from torch.utils.data import DataLoader
 from src.utils import (
     EarlyStopping,
     ProjectConfig,
@@ -54,7 +55,7 @@ def train(config: ProjectConfig) -> None:
         config,
     )
 
-    validation_loader = build_dataloader(
+    val_loader = build_dataloader(
         validation_dataset,
         config,
     )
@@ -118,8 +119,17 @@ def train(config: ProjectConfig) -> None:
         history = TrainingHistory(
             train_loss=h["train_loss"],
             val_loss=h["val_loss"],
+
             train_dice=h["train_dice"],
             val_dice=h["val_dice"],
+
+            train_ncr_dice=h["train_ncr_dice"],
+            train_ed_dice=h["train_ed_dice"],
+            train_et_dice=h["train_et_dice"],
+
+            val_ncr_dice=h["val_ncr_dice"],
+            val_ed_dice=h["val_ed_dice"],
+            val_et_dice=h["val_et_dice"],
         )
 
         print(f"Resuming at epoch {start_epoch}")

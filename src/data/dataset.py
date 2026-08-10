@@ -19,6 +19,7 @@ from torch.utils.data import Dataset
 from .brats_reader import BraTSReader
 from .modality import MRI_MODALITIES
 from typing import TYPE_CHECKING
+from src.preprocessing.transforms import PreprocessingSample
 
 if TYPE_CHECKING:
     from src.preprocessing.pipeline import PreprocessingPipeline
