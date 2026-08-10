@@ -51,6 +51,10 @@ class Trainer:
         self.model = model
         self.optimizer = optimizer
         self.criterion = criterion
+        self.scaler = torch.amp.GradScaler(
+            "cuda",
+            enabled=self.device.type == "cuda",
+        )
 
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -58,25 +62,47 @@ class Trainer:
         self.device = torch.device(device)
         self.model.to(self.device)
 
-    def train_epoch(self, dataloader: DataLoader, progress_bar=None, epoch=0,epochs=1) -> tuple[float, float]:
-        """Run one training epoch and return the mean loss."""
+    def train_epoch(
+        self,
+        dataloader: DataLoader,
+        progress_bar=None,
+        epoch=0,
+        epochs=1,
+    ) -> tuple[float, float]:
+        """Run one training epoch and return mean loss and Dice."""
+
         self.model.train()
 
         total_loss = 0.0
-        num_batches = 0
         total_dice = 0.0
+        num_batches = 0
 
         for images, masks in dataloader:
             if masks is None:
                 raise ValueError("Training requires segmentation masks.")
 
-            images = images.to(self.device, dtype=torch.float32)
-            masks = masks.to(self.device, dtype=torch.long)
+            images = images.to(
+                self.device,
+                dtype=torch.float32,
+                non_blocking=True,
+            )
+            masks = masks.to(
+                self.device,
+                dtype=torch.long,
+                non_blocking=True,
+            )
 
             self.optimizer.zero_grad(set_to_none=True)
 
-            logits = self.model(images)
-            loss = self.criterion(logits, masks)
+            # Mixed precision: FP16 activations on CUDA.
+            with torch.autocast(
+                device_type=self.device.type,
+                dtype=torch.float16,
+                enabled=self.device.type == "cuda",
+            ):
+                logits = self.model(images)
+                loss = self.criterion(logits, masks)
+
             predictions = torch.argmax(logits, dim=1)
 
             dice = mean_dice(
@@ -86,18 +112,21 @@ class Trainer:
                 include_background=False,
             )
 
-            loss.backward()
-            self.optimizer.step()
+            # Scaled backward pass for numerical stability.
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
 
             total_loss += float(loss.detach().item())
-            total_dice += float(dice.item())
+            total_dice += float(dice.detach().item())
             num_batches += 1
 
             if progress_bar is not None:
                 progress_bar.update(1)
                 progress_bar.set_postfix(
-                    epoch=f"{epoch+1}/{epochs}",
+                    epoch=f"{epoch + 1}/{epochs}",
                     loss=f"{loss.item():.4f}",
+                    dice=f"{dice.item():.4f}",
                     lr=f"{self.optimizer.param_groups[0]['lr']:.2e}",
                 )
 
@@ -110,8 +139,12 @@ class Trainer:
         )
 
     @torch.no_grad()
-    def validate_epoch(self, dataloader: DataLoader) -> tuple[float, float]:
-        """Run one validation epoch and return the mean loss."""
+    def validate_epoch(
+        self,
+        dataloader: DataLoader,
+    ) -> tuple[float, float]:
+        """Run one validation epoch and return mean loss and Dice."""
+
         self.model.eval()
 
         total_loss = 0.0
@@ -122,13 +155,27 @@ class Trainer:
             if masks is None:
                 raise ValueError("Validation requires segmentation masks.")
 
-            images = images.to(self.device, dtype=torch.float32)
-            masks = masks.to(self.device, dtype=torch.long)
+            images = images.to(
+                self.device,
+                dtype=torch.float32,
+                non_blocking=True,
+            )
+            masks = masks.to(
+                self.device,
+                dtype=torch.long,
+                non_blocking=True,
+            )
 
-            logits = self.model(images)
-            loss = self.criterion(logits, masks)
+            with torch.autocast(
+                device_type=self.device.type,
+                dtype=torch.float16,
+                enabled=self.device.type == "cuda",
+            ):
+                logits = self.model(images)
+                loss = self.criterion(logits, masks)
+
             predictions = torch.argmax(logits, dim=1)
-            
+
             dice = mean_dice(
                 prediction=predictions,
                 target=masks,
