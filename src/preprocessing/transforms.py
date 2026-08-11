@@ -22,7 +22,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
-from src.data import Modality
+from src.data.modality import Modality
 
 
 @dataclass
