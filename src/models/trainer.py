@@ -167,7 +167,6 @@ class Trainer:
                 prediction=predictions,
                 target=masks,
                 num_classes=logits.shape[1],
-                include_background=False,
             )
 
             ncr_dice = class_dice[0]
