@@ -46,7 +46,7 @@ class EarlyStopping:
 
     patience: int
     min_delta: float = 0.0
-    mode: str = "min"
+    mode: str = "max"
 
     _best_score: Optional[float] = field(
         default=None,

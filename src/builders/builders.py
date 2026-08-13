@@ -79,8 +79,24 @@ def build_pipeline(
 
 def build_loss(config: ProjectConfig) -> DiceCrossEntropyLoss:
     """Build the segmentation loss."""
+
     _ = config
-    return DiceCrossEntropyLoss()
+
+    class_weights = torch.tensor(
+        [
+            0.25,  # Background
+            4.0,   # NCR
+            1.0,   # ED
+            1.5,   # ET
+        ],
+        dtype=torch.float32,
+    )
+
+    return DiceCrossEntropyLoss(
+        dice_weight=1.0,
+        ce_weight=1.0,
+        class_weights=class_weights,
+    )
 
 
 def build_optimizer(

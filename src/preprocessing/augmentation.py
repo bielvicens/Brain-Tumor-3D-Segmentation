@@ -489,39 +489,85 @@ class RandomIntensityShift(Transform):
         )
 
 class RandomCrop3D(Transform):
-    """Randomly crop a fixed-size 3D patch.
+    """
+    Randomly crop a fixed-size 3D patch with tumor-aware sampling.
 
-    The crop can optionally be biased towards tumor regions to increase
-    exposure to underrepresented tumor classes such as NCR.
+    The transform supports three sampling strategies:
+
+        1. Random crop:
+           Completely random spatial crop.
+
+        2. Tumor-aware crop:
+           Crop sampled around any tumor voxel
+           (NCR, ED or ET).
+
+        3. NCR-focused crop:
+           Crop sampled around NCR voxels, with an additional
+           attempt to ensure that the resulting patch contains
+           a minimum amount of NCR.
+
+    BraTS labels:
+        0 = Background
+        1 = NCR (necrotic core)
+        2 = ED  (peritumoral edema)
+        3 = ET  (enhancing tumor)
 
     Args:
         crop_size:
             Desired crop size as (depth, height, width).
+
         probability:
-            Probability of applying the transform.
+            Probability of applying the crop transform.
+
         tumor_probability:
-            Probability that a crop is sampled around tumor voxels instead
-            of being completely random.
+            Probability of selecting a tumor-aware crop instead
+            of a completely random crop.
+
         ncr_probability:
-            Conditional probability, among tumor-aware crops, of sampling
-            specifically around NCR voxels.
+            Conditional probability, among tumor-aware crops,
+            of selecting an NCR-focused crop.
 
-            For example:
-                tumor_probability=0.60
-                ncr_probability=0.20
+        min_ncr_voxels:
+            Minimum number of NCR voxels that an NCR-focused crop
+            should contain when possible.
 
-            means:
-                40% -> completely random crop
-                48% -> general tumor crop
-                12% -> NCR-focused crop
+        max_sampling_attempts:
+            Maximum number of attempts to find a crop satisfying
+            the NCR voxel requirement.
+
+        min_tumor_voxels:
+            Minimum number of tumor voxels required for a
+            tumor-aware crop when possible.
 
         seed:
             Optional random seed for reproducibility.
 
-    BraTS labels:
-        NCR = 1
-        ED  = 2
-        ET  = 3
+    Example:
+
+        RandomCrop3D(
+            crop_size=(96, 96, 96),
+            probability=1.0,
+            tumor_probability=0.80,
+            ncr_probability=0.375,
+            min_ncr_voxels=100,
+            max_sampling_attempts=20,
+            min_tumor_voxels=500,
+            seed=42,
+        )
+
+    With:
+
+        tumor_probability = 0.80
+        ncr_probability = 0.375
+
+    the theoretical sampling distribution is approximately:
+
+        20% -> random
+        50% -> general tumor
+        30% -> NCR-focused
+
+    If NCR is absent, NCR-focused sampling falls back to
+    general tumor sampling.
     """
 
     NCR_LABEL = 1
@@ -531,12 +577,25 @@ class RandomCrop3D(Transform):
         self,
         crop_size: tuple[int, int, int],
         probability: float = 1.0,
-        tumor_probability: float = 0.0,
-        ncr_probability: float = 0.0,
+        tumor_probability: float = 0.80,
+        ncr_probability: float = 0.375,
+        min_ncr_voxels: int = 100,
+        max_sampling_attempts: int = 20,
+        min_tumor_voxels: int = 500,
         seed: Optional[int] = None,
     ) -> None:
 
-        self.crop_size = self._validate_crop_size(crop_size)
+        # ----------------------------------------------------------
+        # Crop size
+        # ----------------------------------------------------------
+
+        self.crop_size = self._validate_crop_size(
+            crop_size
+        )
+
+        # ----------------------------------------------------------
+        # Probabilities
+        # ----------------------------------------------------------
 
         if not 0.0 <= probability <= 1.0:
             raise ValueError(
@@ -553,11 +612,72 @@ class RandomCrop3D(Transform):
                 "ncr_probability must be between 0 and 1."
             )
 
-        self.probability = probability
-        self.tumor_probability = tumor_probability
-        self.ncr_probability = ncr_probability
+        # ----------------------------------------------------------
+        # Sampling parameters
+        # ----------------------------------------------------------
+
+        if (
+            isinstance(min_ncr_voxels, bool)
+            or not isinstance(min_ncr_voxels, int)
+        ):
+            raise TypeError(
+                "min_ncr_voxels must be an int."
+            )
+
+        if min_ncr_voxels < 0:
+            raise ValueError(
+                "min_ncr_voxels must be non-negative."
+            )
+
+        if (
+            isinstance(max_sampling_attempts, bool)
+            or not isinstance(max_sampling_attempts, int)
+        ):
+            raise TypeError(
+                "max_sampling_attempts must be an int."
+            )
+
+        if max_sampling_attempts <= 0:
+            raise ValueError(
+                "max_sampling_attempts must be greater than zero."
+            )
+
+        if (
+            isinstance(min_tumor_voxels, bool)
+            or not isinstance(min_tumor_voxels, int)
+        ):
+            raise TypeError(
+                "min_tumor_voxels must be an int."
+            )
+
+        if min_tumor_voxels < 0:
+            raise ValueError(
+                "min_tumor_voxels must be non-negative."
+            )
+
+        self.probability = float(probability)
+        self.tumor_probability = float(
+            tumor_probability
+        )
+        self.ncr_probability = float(
+            ncr_probability
+        )
+
+        self.min_ncr_voxels = min_ncr_voxels
+        self.max_sampling_attempts = (
+            max_sampling_attempts
+        )
+        self.min_tumor_voxels = min_tumor_voxels
+
+        # ----------------------------------------------------------
+        # Random generator
+        # ----------------------------------------------------------
 
         self._rng = np.random.default_rng(seed)
+
+    # ==============================================================
+    # VALIDATION
+    # ==============================================================
 
     @staticmethod
     def _validate_crop_size(
@@ -566,15 +686,21 @@ class RandomCrop3D(Transform):
         """Validate the requested crop size."""
 
         try:
-            values = tuple(int(v) for v in crop_size)
+            values = tuple(
+                int(v)
+                for v in crop_size
+            )
+
         except (TypeError, ValueError) as exc:
             raise ValueError(
-                "crop_size must be an iterable of three integers."
+                "crop_size must be an iterable "
+                "of three integers."
             ) from exc
 
         if len(values) != 3:
             raise ValueError(
-                "crop_size must contain exactly three dimensions."
+                "crop_size must contain exactly "
+                "three dimensions."
             )
 
         if any(v <= 0 for v in values):
@@ -584,126 +710,243 @@ class RandomCrop3D(Transform):
 
         return values
 
+    # ==============================================================
+    # INPUT VALIDATION
+    # ==============================================================
+
     def validate_input(
         self,
         sample: PreprocessingSample,
     ) -> None:
-        """Ensure the crop fits inside the volume."""
+        """
+        Ensure the crop fits inside the volume.
+        """
 
-        validate_shapes_consistent(sample)
+        validate_shapes_consistent(
+            sample
+        )
 
-        shape = self._reference_shape(sample)
+        shape = self._reference_shape(
+            sample
+        )
 
         if len(shape) != 3:
             raise InvalidVolumeError(
                 f"Expected 3D volumes, got shape {shape}."
             )
 
-        for crop, dim in zip(self.crop_size, shape):
+        for crop, dim in zip(
+            self.crop_size,
+            shape,
+        ):
             if crop > dim:
                 raise InvalidVolumeError(
-                    f"Crop size {self.crop_size} exceeds image shape {shape}."
+                    f"Crop size {self.crop_size} "
+                    f"exceeds image shape {shape}."
                 )
+
+    # ==============================================================
+    # MAIN TRANSFORM
+    # ==============================================================
 
     def apply(
         self,
         sample: PreprocessingSample,
     ) -> PreprocessingSample:
-        """Apply a random or tumor-aware 3D crop."""
+        """
+        Apply a random, tumor-aware or NCR-focused crop.
+        """
 
-        if self._rng.random() >= self.probability:
+        # ----------------------------------------------------------
+        # Probability of applying the transform
+        # ----------------------------------------------------------
+
+        if (
+            self._rng.random()
+            >= self.probability
+        ):
             return sample
 
-        shape = self._reference_shape(sample)
+        shape = self._reference_shape(
+            sample
+        )
 
         crop_mode = "random"
 
-        # --------------------------------------------------------------
-        # Decide whether this crop should be tumor-aware.
-        # --------------------------------------------------------------
+        # ----------------------------------------------------------
+        # Default crop
+        # ----------------------------------------------------------
+
+        start = self._random_start_indices(
+            shape
+        )
+
+        # ----------------------------------------------------------
+        # Tumor-aware sampling
+        # ----------------------------------------------------------
+
         tumor_aware = (
             sample.segmentation is not None
-            and self._rng.random() < self.tumor_probability
+            and self._rng.random()
+            < self.tumor_probability
         )
 
         if tumor_aware:
+
+            # ------------------------------------------------------
+            # Decide NCR-focused vs general tumor crop
+            # ------------------------------------------------------
+
             use_ncr = (
-                self._rng.random() < self.ncr_probability
+                self._rng.random()
+                < self.ncr_probability
             )
 
+            # ======================================================
+            # NCR-FOCUSED CROP
+            # ======================================================
+
             if use_ncr:
-                start = self._tumor_aware_start_indices(
-                    sample.segmentation,
-                    shape,
-                    labels=(self.NCR_LABEL,),
+
+                start = self._ncr_focused_start_indices(
+                    segmentation=sample.segmentation,
+                    shape=shape,
                 )
 
                 if start is not None:
                     crop_mode = "ncr"
+
                 else:
-                    # NCR may be absent in this patient.
-                    # Fall back to general tumor sampling.
+                    # --------------------------------------------------
+                    # NCR unavailable or no suitable crop found.
+                    # Fall back to general tumor.
+                    # --------------------------------------------------
+
                     start = self._tumor_aware_start_indices(
-                        sample.segmentation,
-                        shape,
+                        segmentation=sample.segmentation,
+                        shape=shape,
                         labels=self.TUMOR_LABELS,
+                        min_voxels=self.min_tumor_voxels,
                     )
 
                     if start is not None:
-                        crop_mode = "tumor"
+                        crop_mode = "tumor_fallback"
+
                     else:
-                        start = self._random_start_indices(shape)
+                        start = self._random_start_indices(
+                            shape
+                        )
                         crop_mode = "random_fallback"
 
+            # ======================================================
+            # GENERAL TUMOR CROP
+            # ======================================================
+
             else:
+
                 start = self._tumor_aware_start_indices(
-                    sample.segmentation,
-                    shape,
+                    segmentation=sample.segmentation,
+                    shape=shape,
                     labels=self.TUMOR_LABELS,
+                    min_voxels=self.min_tumor_voxels,
                 )
 
                 if start is not None:
                     crop_mode = "tumor"
+
                 else:
-                    start = self._random_start_indices(shape)
+                    start = self._random_start_indices(
+                        shape
+                    )
                     crop_mode = "random_fallback"
 
-        else:
-            start = self._random_start_indices(shape)
+        # ==========================================================
+        # CREATE SLICES
+        # ==========================================================
 
         slices = tuple(
-            slice(s, s + size)
-            for s, size in zip(start, self.crop_size)
+            slice(
+                s,
+                s + size,
+            )
+            for s, size in zip(
+                start,
+                self.crop_size,
+            )
         )
 
-        logger.debug(
-            (
-                "Applying RandomCrop3D("
-                "crop_size=%s, start=%s, mode=%s, "
-                "tumor_probability=%.2f, ncr_probability=%.2f"
-                ") to patient '%s'."
-            ),
-            self.crop_size,
-            start,
-            crop_mode,
-            self.tumor_probability,
-            self.ncr_probability,
-            sample.patient_id,
-        )
+        # ==========================================================
+        # CROP MODALITIES
+        # ==========================================================
 
         cropped_modalities = {
             modality: volume[slices].copy()
-            for modality, volume in sample.modalities.items()
+            for modality, volume
+            in sample.modalities.items()
         }
+
+        # ==========================================================
+        # CROP SEGMENTATION
+        # ==========================================================
 
         cropped_segmentation = None
 
         if sample.segmentation is not None:
-            cropped_segmentation = sample.segmentation[
-                slices
-            ].copy()
+            cropped_segmentation = (
+                sample.segmentation[slices].copy()
+            )
 
-        metadata = dict(sample.metadata)
+        # ==========================================================
+        # METADATA
+        # ==========================================================
+
+        metadata = dict(
+            sample.metadata
+        )
+
+        # ----------------------------------------------------------
+        # Calculate crop statistics
+        # ----------------------------------------------------------
+
+        crop_statistics = {}
+
+        if cropped_segmentation is not None:
+
+            crop_statistics = {
+                "background_voxels": int(
+                    np.sum(
+                        cropped_segmentation == 0
+                    )
+                ),
+                "ncr_voxels": int(
+                    np.sum(
+                        cropped_segmentation
+                        == self.NCR_LABEL
+                    )
+                ),
+                "ed_voxels": int(
+                    np.sum(
+                        cropped_segmentation == 2
+                    )
+                ),
+                "et_voxels": int(
+                    np.sum(
+                        cropped_segmentation == 3
+                    )
+                ),
+                "tumor_voxels": int(
+                    np.sum(
+                        np.isin(
+                            cropped_segmentation,
+                            self.TUMOR_LABELS,
+                        )
+                    )
+                ),
+            }
+
+        # ----------------------------------------------------------
+        # Store augmentation metadata
+        # ----------------------------------------------------------
 
         metadata.setdefault(
             "augmentations",
@@ -711,13 +954,38 @@ class RandomCrop3D(Transform):
         ).append(
             {
                 "name": "RandomCrop3D",
+
                 "crop_size": self.crop_size,
+
                 "start": start,
+
                 "mode": crop_mode,
-                "tumor_probability": self.tumor_probability,
-                "ncr_probability": self.ncr_probability,
+
+                "probability": self.probability,
+
+                "tumor_probability": (
+                    self.tumor_probability
+                ),
+
+                "ncr_probability": (
+                    self.ncr_probability
+                ),
+
+                "min_ncr_voxels": (
+                    self.min_ncr_voxels
+                ),
+
+                "min_tumor_voxels": (
+                    self.min_tumor_voxels
+                ),
+
+                "crop_statistics": crop_statistics,
             }
         )
+
+        # ==========================================================
+        # RETURN
+        # ==========================================================
 
         return sample.replace(
             modalities=cropped_modalities,
@@ -725,56 +993,262 @@ class RandomCrop3D(Transform):
             metadata=metadata,
         )
 
+    # ==============================================================
+    # NCR-FOCUSED SAMPLING
+    # ==============================================================
+
+    def _ncr_focused_start_indices(
+        self,
+        segmentation: np.ndarray,
+        shape: tuple[int, int, int],
+    ) -> Optional[tuple[int, int, int]]:
+        """
+        Generate crop coordinates focused on NCR.
+
+        Several candidate crops are generated around randomly
+        selected NCR voxels. The first crop containing at least
+        ``min_ncr_voxels`` is accepted.
+
+        If no candidate satisfies the requirement, the best
+        candidate found is returned.
+
+        Returns None only when NCR is completely absent.
+        """
+
+        if segmentation is None:
+            return None
+
+        # ----------------------------------------------------------
+        # Find NCR voxels
+        # ----------------------------------------------------------
+
+        ncr_mask = (
+            segmentation
+            == self.NCR_LABEL
+        )
+
+        coordinates = np.argwhere(
+            ncr_mask
+        )
+
+        if coordinates.size == 0:
+            return None
+
+        best_start = None
+        best_ncr_count = -1
+
+        # ----------------------------------------------------------
+        # Try several candidate crops
+        # ----------------------------------------------------------
+
+        for _ in range(
+            self.max_sampling_attempts
+        ):
+
+            anchor = coordinates[
+                self._rng.integers(
+                    0,
+                    len(coordinates),
+                )
+            ]
+
+            start = self._start_indices_from_anchor(
+                anchor=anchor,
+                shape=shape,
+            )
+
+            slices = tuple(
+                slice(
+                    s,
+                    s + crop,
+                )
+                for s, crop
+                in zip(
+                    start,
+                    self.crop_size,
+                )
+            )
+
+            cropped_segmentation = (
+                segmentation[slices]
+            )
+
+            ncr_count = int(
+                np.sum(
+                    cropped_segmentation
+                    == self.NCR_LABEL
+                )
+            )
+
+            # ------------------------------------------------------
+            # Keep best candidate
+            # ------------------------------------------------------
+
+            if ncr_count > best_ncr_count:
+                best_ncr_count = ncr_count
+                best_start = start
+
+            # ------------------------------------------------------
+            # Desired crop found
+            # ------------------------------------------------------
+
+            if (
+                ncr_count
+                >= self.min_ncr_voxels
+            ):
+                return start
+
+        return best_start
+
+    # ==============================================================
+    # GENERAL TUMOR SAMPLING
+    # ==============================================================
+
     def _tumor_aware_start_indices(
         self,
         segmentation: np.ndarray,
         shape: tuple[int, int, int],
         labels: tuple[int, ...],
+        min_voxels: int = 0,
     ) -> Optional[tuple[int, int, int]]:
-        """Generate crop coordinates around a target tumor region.
+        """
+        Generate crop coordinates around tumor voxels.
 
-        A random voxel belonging to one of ``labels`` is selected as the
-        crop anchor. The crop is then positioned so that the anchor lies
-        somewhere inside the resulting patch.
+        Several candidate crops are tested. If ``min_voxels`` is
+        greater than zero, the first crop containing at least that
+        many requested tumor voxels is returned.
 
-        Returns ``None`` when the requested labels are not present.
+        If no candidate satisfies the requirement, the candidate
+        containing the largest number of requested voxels is
+        returned.
+
+        Returns None when the requested labels are absent.
         """
 
         if segmentation is None:
             return None
+
+        # ----------------------------------------------------------
+        # Tumor mask
+        # ----------------------------------------------------------
 
         mask = np.isin(
             segmentation,
             labels,
         )
 
-        coordinates = np.argwhere(mask)
+        coordinates = np.argwhere(
+            mask
+        )
 
         if coordinates.size == 0:
             return None
 
-        anchor = coordinates[
-            self._rng.integers(
-                0,
-                len(coordinates),
+        best_start = None
+        best_count = -1
+
+        # ----------------------------------------------------------
+        # Candidate crops
+        # ----------------------------------------------------------
+
+        for _ in range(
+            self.max_sampling_attempts
+        ):
+
+            anchor = coordinates[
+                self._rng.integers(
+                    0,
+                    len(coordinates),
+                )
+            ]
+
+            start = self._start_indices_from_anchor(
+                anchor=anchor,
+                shape=shape,
             )
-        ]
+
+            slices = tuple(
+                slice(
+                    s,
+                    s + crop,
+                )
+                for s, crop
+                in zip(
+                    start,
+                    self.crop_size,
+                )
+            )
+
+            cropped_segmentation = (
+                segmentation[slices]
+            )
+
+            voxel_count = int(
+                np.sum(
+                    np.isin(
+                        cropped_segmentation,
+                        labels,
+                    )
+                )
+            )
+
+            # ------------------------------------------------------
+            # Best candidate
+            # ------------------------------------------------------
+
+            if voxel_count > best_count:
+                best_count = voxel_count
+                best_start = start
+
+            # ------------------------------------------------------
+            # Desired amount found
+            # ------------------------------------------------------
+
+            if voxel_count >= min_voxels:
+                return start
+
+        return best_start
+
+    # ==============================================================
+    # ANCHOR -> CROP START
+    # ==============================================================
+
+    def _start_indices_from_anchor(
+        self,
+        anchor: np.ndarray,
+        shape: tuple[int, int, int],
+    ) -> tuple[int, int, int]:
+        """
+        Generate valid crop start indices around an anchor voxel.
+
+        The anchor is guaranteed to lie inside the resulting crop.
+        """
 
         starts = []
 
-        for axis, (anchor_position, dim, crop) in enumerate(
-            zip(anchor, shape, self.crop_size)
+        for (
+            anchor_position,
+            dim,
+            crop,
+        ) in zip(
+            anchor,
+            shape,
+            self.crop_size,
         ):
-            max_start = dim - crop
+
+            max_start = (
+                dim - crop
+            )
 
             if max_start <= 0:
                 starts.append(0)
                 continue
 
-            # Allow the anchor to appear anywhere inside the crop.
             min_start = max(
                 0,
-                int(anchor_position) - crop + 1,
+                int(anchor_position)
+                - crop
+                + 1,
             )
 
             max_valid_start = min(
@@ -782,45 +1256,59 @@ class RandomCrop3D(Transform):
                 max_start,
             )
 
-            if min_start > max_valid_start:
-                starts.append(
-                    min(
-                        max(
-                            int(anchor_position) - crop // 2,
-                            0,
-                        ),
-                        max_start,
-                    )
+            if (
+                min_start
+                > max_valid_start
+            ):
+                start = min(
+                    max(
+                        int(anchor_position)
+                        - crop // 2,
+                        0,
+                    ),
+                    max_start,
                 )
+
             else:
-                starts.append(
-                    int(
-                        self._rng.integers(
-                            min_start,
-                            max_valid_start + 1,
-                        )
+                start = int(
+                    self._rng.integers(
+                        min_start,
+                        max_valid_start + 1,
                     )
                 )
 
+            starts.append(start)
+
         return tuple(starts)
+
+    # ==============================================================
+    # RANDOM SAMPLING
+    # ==============================================================
 
     def _random_start_indices(
         self,
         shape: tuple[int, int, int],
     ) -> tuple[int, int, int]:
-        """Generate completely random crop start coordinates."""
+        """
+        Generate completely random crop start coordinates.
+        """
 
         starts: list[int] = []
 
-        for dim, crop in zip(shape, self.crop_size):
+        for dim, crop in zip(
+            shape,
+            self.crop_size,
+        ):
 
             if crop > dim:
                 raise InvalidVolumeError(
-                    f"Crop size {self.crop_size} exceeds image shape {shape}."
+                    f"Crop size {self.crop_size} "
+                    f"exceeds image shape {shape}."
                 )
 
             if dim == crop:
                 starts.append(0)
+
             else:
                 starts.append(
                     int(
@@ -833,24 +1321,36 @@ class RandomCrop3D(Transform):
 
         return tuple(starts)
 
+    # ==============================================================
+    # REFERENCE SHAPE
+    # ==============================================================
+
     @staticmethod
     def _reference_shape(
         sample: PreprocessingSample,
     ) -> tuple[int, int, int]:
-        """Return the common volume shape."""
+        """
+        Return the common volume shape.
+        """
 
         if sample.modalities:
+
             return tuple(
                 next(
-                    iter(sample.modalities.values())
+                    iter(
+                        sample.modalities.values()
+                    )
                 ).shape
             )
 
         if sample.segmentation is not None:
-            return tuple(sample.segmentation.shape)
+            return tuple(
+                sample.segmentation.shape
+            )
 
         raise InvalidVolumeError(
-            f"Patient '{sample.patient_id}' contains no image data."
+            f"Patient '{sample.patient_id}' "
+            "contains no image data."
         )
     
 class CenterCrop3D(Transform):

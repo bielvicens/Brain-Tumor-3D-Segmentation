@@ -112,18 +112,53 @@ class DiceLoss(nn.Module):
 
 
 class CrossEntropySegmentationLoss(nn.Module):
-    """Cross-entropy loss for multi-class 3D segmentation."""
+    """Weighted cross-entropy loss for multi-class 3D segmentation."""
 
-    def __init__(self, ignore_index: Optional[int] = None) -> None:
+    def __init__(
+        self,
+        ignore_index: Optional[int] = None,
+        class_weights: Optional[Tensor] = None,
+    ) -> None:
         super().__init__()
 
         self.ignore_index = (
             -100 if ignore_index is None else int(ignore_index)
         )
 
-    def forward(self, logits: Tensor, target: Tensor) -> Tensor:
-        """Compute cross-entropy segmentation loss."""
-        _validate_segmentation_inputs(logits, target)
+        if class_weights is not None:
+            if not isinstance(class_weights, Tensor):
+                raise TypeError(
+                    "class_weights must be a torch.Tensor or None."
+                )
+
+            if class_weights.ndim != 1:
+                raise ValueError(
+                    "class_weights must be a 1D tensor."
+                )
+
+            if torch.any(class_weights < 0):
+                raise ValueError(
+                    "class_weights must contain non-negative values."
+                )
+
+            self.register_buffer(
+                "class_weights",
+                class_weights.float(),
+            )
+        else:
+            self.class_weights = None
+
+    def forward(
+        self,
+        logits: Tensor,
+        target: Tensor,
+    ) -> Tensor:
+        """Compute weighted cross-entropy segmentation loss."""
+
+        _validate_segmentation_inputs(
+            logits,
+            target,
+        )
 
         num_classes = logits.shape[1]
 
@@ -137,24 +172,26 @@ class CrossEntropySegmentationLoss(nn.Module):
                     f"got [{min_label}, {max_label}]."
                 )
 
+        if (
+            self.class_weights is not None
+            and len(self.class_weights) != num_classes
+        ):
+            raise ValueError(
+                "class_weights must contain exactly one weight "
+                f"per class. Expected {num_classes}, "
+                f"got {len(self.class_weights)}."
+            )
+
         return F.cross_entropy(
             logits,
             target.long(),
+            weight=self.class_weights,
             ignore_index=self.ignore_index,
         )
 
 
 class DiceCrossEntropyLoss(nn.Module):
-    """Weighted combination of Dice and cross-entropy losses.
-
-    ``loss = dice_weight * dice_loss + ce_weight * cross_entropy``
-
-    Args:
-        dice_weight: Weight applied to Dice loss.
-        ce_weight: Weight applied to cross-entropy loss.
-        smooth: Numerical stabilizer used by DiceLoss.
-        ignore_index: Optional class excluded from both losses.
-    """
+    """Weighted combination of Dice and cross-entropy losses."""
 
     def __init__(
         self,
@@ -162,18 +199,24 @@ class DiceCrossEntropyLoss(nn.Module):
         ce_weight: float = 1.0,
         smooth: float = 1e-6,
         ignore_index: Optional[int] = None,
+        class_weights: Optional[Tensor] = None,
     ) -> None:
         super().__init__()
 
         if dice_weight < 0:
-            raise ValueError("dice_weight must be non-negative.")
+            raise ValueError(
+                "dice_weight must be non-negative."
+            )
 
         if ce_weight < 0:
-            raise ValueError("ce_weight must be non-negative.")
+            raise ValueError(
+                "ce_weight must be non-negative."
+            )
 
         if dice_weight == 0 and ce_weight == 0:
             raise ValueError(
-                "At least one of dice_weight or ce_weight must be positive."
+                "At least one of dice_weight or ce_weight "
+                "must be positive."
             )
 
         self.dice_weight = float(dice_weight)
@@ -186,12 +229,25 @@ class DiceCrossEntropyLoss(nn.Module):
 
         self.cross_entropy_loss = CrossEntropySegmentationLoss(
             ignore_index=ignore_index,
+            class_weights=class_weights,
         )
 
-    def forward(self, logits: Tensor, target: Tensor) -> Tensor:
+    def forward(
+        self,
+        logits: Tensor,
+        target: Tensor,
+    ) -> Tensor:
         """Compute the weighted Dice + cross-entropy loss."""
-        dice = self.dice_loss(logits, target)
-        cross_entropy = self.cross_entropy_loss(logits, target)
+
+        dice = self.dice_loss(
+            logits,
+            target,
+        )
+
+        cross_entropy = self.cross_entropy_loss(
+            logits,
+            target,
+        )
 
         return (
             self.dice_weight * dice

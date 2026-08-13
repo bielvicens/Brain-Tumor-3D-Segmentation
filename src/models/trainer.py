@@ -511,9 +511,9 @@ class Trainer:
 
             if (
                 early_stopping is not None
-                and val_ncr_dice is not None
+                and val_dice is not None
                 and early_stopping.step(
-                    val_ncr_dice
+                    val_dice
                 )
             ):
                 print(
