@@ -169,9 +169,9 @@ class Trainer:
                 num_classes=logits.shape[1],
             )
 
-            ncr_dice = class_dice[0]
-            ed_dice = class_dice[1]
-            et_dice = class_dice[2]
+            ncr_dice = class_dice[1]
+            ed_dice = class_dice[2]
+            et_dice = class_dice[3]
 
             # --------------------------------------------------
             # ACCUMULATE
