@@ -359,16 +359,16 @@ class CrossEntropySegmentationLoss(nn.Module):
 
 
 class DiceCrossEntropyLoss(nn.Module):
-    """Weighted combination of tumor-focused Dice and cross-entropy."""
+    """Weighted combination of Dice and cross-entropy losses."""
 
     def __init__(
         self,
         dice_weight: float = 1.0,
         ce_weight: float = 1.0,
         smooth: float = 1e-6,
-        ignore_index: Optional[int] = None,
+        dice_ignore_index: Optional[int] = None,
+        ce_ignore_index: Optional[int] = None,
         class_weights: Optional[Tensor] = None,
-        include_background: bool = False,
     ) -> None:
         super().__init__()
 
@@ -391,15 +391,15 @@ class DiceCrossEntropyLoss(nn.Module):
         self.dice_weight = float(dice_weight)
         self.ce_weight = float(ce_weight)
 
+        # Dice: podem excloure background
         self.dice_loss = DiceLoss(
             smooth=smooth,
-            ignore_index=ignore_index,
-            class_weights=class_weights,
-            include_background=include_background,
+            ignore_index=dice_ignore_index,
         )
 
+        # Cross Entropy: mantenim background
         self.cross_entropy_loss = CrossEntropySegmentationLoss(
-            ignore_index=ignore_index,
+            ignore_index=ce_ignore_index,
             class_weights=class_weights,
         )
 
@@ -408,7 +408,7 @@ class DiceCrossEntropyLoss(nn.Module):
         logits: Tensor,
         target: Tensor,
     ) -> Tensor:
-        """Compute weighted Dice + cross-entropy loss."""
+        """Compute the weighted Dice + cross-entropy loss."""
 
         dice = self.dice_loss(
             logits,

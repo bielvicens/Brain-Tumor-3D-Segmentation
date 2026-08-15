@@ -80,9 +80,7 @@ def build_pipeline(
     return PreprocessingPipeline(transforms)
 
 
-def build_loss(
-    config: ProjectConfig,
-) -> DiceCrossEntropyLoss:
+def build_loss(config: ProjectConfig) -> DiceCrossEntropyLoss:
     """Build the segmentation loss."""
 
     _ = config
@@ -100,8 +98,9 @@ def build_loss(
     return DiceCrossEntropyLoss(
         dice_weight=1.0,
         ce_weight=1.0,
+        dice_ignore_index=0,
+        ce_ignore_index=None,
         class_weights=class_weights,
-        include_background=False,
     )
 
 
