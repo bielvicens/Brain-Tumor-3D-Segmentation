@@ -138,46 +138,78 @@ def dice_score(
     class_id: Optional[int] = None,
     smooth: float = DEFAULT_SMOOTH,
 ) -> torch.Tensor:
-    """Dice similarity coefficient: ``2 * |A n B| / (|A| + |B|)``.
+    """Dice similarity coefficient.
 
-    Args:
-        prediction: Predicted mask. Binary (``{0, 1}``) if ``class_id`` is
-            ``None``, otherwise an integer label map.
-        target: Ground-truth mask, same shape and calling convention as
-            ``prediction``.
-        class_id: If given, the class to extract from both tensors (via
-            ``tensor == class_id``) before computing Dice. If ``None``,
-            ``prediction``/``target`` are used directly as binary masks.
-        smooth: Additive smoothing term (see module docstring /
-            :data:`DEFAULT_SMOOTH`).
+    When ``class_id`` is provided:
 
-    Returns:
-        A 0-dim ``float32`` tensor with the Dice score, in ``[0, 1]``.
-        ``1.0`` both for a perfect match and for a class absent from both
-        prediction and target (they agree there is nothing there).
+    - Class present in target and prediction -> normal Dice.
+    - Class present in target but absent in prediction -> 0.0.
+    - Class absent in target but present in prediction -> 0.0.
+    - Class absent in both -> NaN, so it is ignored by mean Dice.
 
-    Raises:
-        TypeError: If ``prediction`` or ``target`` is not a ``torch.Tensor``.
-        ValueError: If shapes don't match, either tensor is empty,
-            ``class_id`` is invalid, ``smooth`` is negative, or (in binary
-            mode) either tensor contains values other than 0/1.
+    This prevents absent classes from artificially increasing Mean Dice.
     """
+
     _validate_tensor_pair(prediction, target)
     _validate_class_id(class_id)
     _validate_smooth(smooth)
 
-    pred_bin, target_bin = _binarize_pair(prediction, target, class_id)
-    intersection = torch.sum(pred_bin * target_bin)
-    denominator = torch.sum(pred_bin) + torch.sum(target_bin)
+    pred_bin, target_bin = _binarize_pair(
+        prediction,
+        target,
+        class_id,
+    )
 
-    if class_id is not None and denominator == 0:
-        logger.debug(
-            "Class %d is absent from both prediction and target; dice_score "
-            "returns 1.0 by convention.",
-            class_id,
+    prediction_sum = torch.sum(pred_bin)
+    target_sum = torch.sum(target_bin)
+
+    # ------------------------------------------------------------
+    # CLASS ABSENT FROM BOTH
+    # ------------------------------------------------------------
+
+    if class_id is not None:
+        if prediction_sum == 0 and target_sum == 0:
+            logger.debug(
+                "Class %d is absent from both prediction and target; "
+                "returning NaN so it is excluded from Mean Dice.",
+                class_id,
+            )
+
+            return torch.tensor(
+                float("nan"),
+                dtype=torch.float32,
+                device=prediction.device,
+            )
+
+    # ------------------------------------------------------------
+    # CLASS PRESENT IN ONLY ONE OF THE TWO
+    # ------------------------------------------------------------
+
+    if prediction_sum == 0 or target_sum == 0:
+        return torch.tensor(
+            0.0,
+            dtype=torch.float32,
+            device=prediction.device,
         )
 
-    return _safe_ratio(2.0 * intersection, denominator, smooth)
+    # ------------------------------------------------------------
+    # NORMAL DICE
+    # ------------------------------------------------------------
+
+    intersection = torch.sum(
+        pred_bin * target_bin
+    )
+
+    denominator = (
+        prediction_sum
+        + target_sum
+    )
+
+    return _safe_ratio(
+        2.0 * intersection,
+        denominator,
+        smooth,
+    )
 
 
 def iou_score(
@@ -236,29 +268,33 @@ def dice_per_class(
 ) -> torch.Tensor:
     """Dice score computed independently for every class.
 
-    Args:
-        prediction: Integer label map (e.g. the argmax of a model's output).
-        target: Ground-truth integer label map, same shape as ``prediction``.
-        num_classes: Number of classes, evaluated as ``class_id in range(num_classes)``.
-        smooth: Additive smoothing term, passed to each per-class :func:`dice_score` call.
-
-    Returns:
-        A 1D ``float32`` tensor of shape ``(num_classes,)``; index ``c``
-        holds ``dice_score(prediction, target, class_id=c, smooth=smooth)``.
-
-    Raises:
-        TypeError: If ``prediction`` or ``target`` is not a ``torch.Tensor``.
-        ValueError: If shapes don't match, either tensor is empty,
-            ``num_classes`` is not a positive integer, or ``smooth`` is negative.
+    Classes absent from both prediction and target return NaN and are
+    excluded from Mean Dice calculations.
     """
-    _validate_tensor_pair(prediction, target)
-    _validate_num_classes(num_classes)
-    _validate_smooth(smooth)
+
+    _validate_tensor_pair(
+        prediction,
+        target,
+    )
+
+    _validate_num_classes(
+        num_classes,
+    )
+
+    _validate_smooth(
+        smooth,
+    )
 
     scores = [
-        dice_score(prediction, target, class_id=class_id, smooth=smooth)
+        dice_score(
+            prediction,
+            target,
+            class_id=class_id,
+            smooth=smooth,
+        )
         for class_id in range(num_classes)
     ]
+
     return torch.stack(scores)
 
 

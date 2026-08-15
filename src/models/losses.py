@@ -10,47 +10,110 @@ import torch.nn.functional as F
 
 
 class DiceLoss(nn.Module):
-    """Multi-class soft Dice loss.
+    """Weighted multi-class soft Dice loss focused on tumor classes.
+
+    Background is excluded from the Dice loss by default because the main
+    objective is accurate tumor segmentation.
 
     Args:
-        smooth: Numerical stabilizer added to numerator and denominator.
-        ignore_index: Optional target class to exclude from the Dice
-            computation.
+        smooth:
+            Numerical stabilizer added to numerator and denominator.
+
+        ignore_index:
+            Optional target class to exclude from the Dice computation.
+
+        class_weights:
+            Optional weights for each class. The tensor must contain one
+            weight per class.
+
+            For BraTS:
+                0 = Background
+                1 = NCR
+                2 = ED
+                3 = ET
+
+        include_background:
+            Whether to include background in the Dice loss.
     """
 
     def __init__(
         self,
         smooth: float = 1e-6,
         ignore_index: Optional[int] = None,
+        class_weights: Optional[Tensor] = None,
+        include_background: bool = False,
     ) -> None:
         super().__init__()
 
         if smooth <= 0:
-            raise ValueError("smooth must be strictly positive.")
+            raise ValueError(
+                "smooth must be strictly positive."
+            )
 
-        if ignore_index is not None and not isinstance(ignore_index, int):
-            raise TypeError("ignore_index must be an integer or None.")
+        if (
+            ignore_index is not None
+            and not isinstance(ignore_index, int)
+        ):
+            raise TypeError(
+                "ignore_index must be an integer or None."
+            )
 
         self.smooth = float(smooth)
         self.ignore_index = ignore_index
+        self.include_background = include_background
 
-    def forward(self, logits: Tensor, target: Tensor) -> Tensor:
-        """Compute soft multi-class Dice loss.
+        if class_weights is not None:
 
-        Args:
-            logits: Tensor with shape ``(N, C, D, H, W)``.
-            target: Integer tensor with shape ``(N, D, H, W)``.
+            if not isinstance(class_weights, Tensor):
+                raise TypeError(
+                    "class_weights must be a torch.Tensor or None."
+                )
 
-        Returns:
-            Scalar Dice loss.
-        """
-        _validate_segmentation_inputs(logits, target)
+            if class_weights.ndim != 1:
+                raise ValueError(
+                    "class_weights must be a 1D tensor."
+                )
+
+            if torch.any(class_weights < 0):
+                raise ValueError(
+                    "class_weights must contain non-negative values."
+                )
+
+            self.register_buffer(
+                "class_weights",
+                class_weights.float(),
+            )
+
+        else:
+            self.class_weights = None
+
+    def forward(
+        self,
+        logits: Tensor,
+        target: Tensor,
+    ) -> Tensor:
+        """Compute weighted soft Dice loss."""
+
+        _validate_segmentation_inputs(
+            logits,
+            target,
+        )
 
         num_classes = logits.shape[1]
 
+        # ---------------------------------------------------------
+        # Validate target labels
+        # ---------------------------------------------------------
+
         if target.numel() > 0:
-            min_label = int(target.min().item())
-            max_label = int(target.max().item())
+
+            min_label = int(
+                target.min().item()
+            )
+
+            max_label = int(
+                target.max().item()
+            )
 
             if min_label < 0 or max_label >= num_classes:
                 raise ValueError(
@@ -58,32 +121,94 @@ class DiceLoss(nn.Module):
                     f"got [{min_label}, {max_label}]."
                 )
 
-        probabilities = F.softmax(logits, dim=1)
+        # ---------------------------------------------------------
+        # Validate class weights
+        # ---------------------------------------------------------
+
+        if (
+            self.class_weights is not None
+            and len(self.class_weights) != num_classes
+        ):
+            raise ValueError(
+                "class_weights must contain exactly one weight "
+                f"per class. Expected {num_classes}, "
+                f"got {len(self.class_weights)}."
+            )
+
+        # ---------------------------------------------------------
+        # Softmax probabilities
+        # ---------------------------------------------------------
+
+        probabilities = F.softmax(
+            logits,
+            dim=1,
+        )
+
+        # ---------------------------------------------------------
+        # One-hot target
+        # ---------------------------------------------------------
 
         target_one_hot = F.one_hot(
             target.long(),
             num_classes=num_classes,
         )
 
-        target_one_hot = target_one_hot.permute(0, 4, 1, 2, 3).to(
+        target_one_hot = target_one_hot.permute(
+            0,
+            4,
+            1,
+            2,
+            3,
+        ).to(
             dtype=probabilities.dtype
         )
 
+        # ---------------------------------------------------------
+        # Select classes
+        # ---------------------------------------------------------
+
+        class_indices = list(
+            range(num_classes)
+        )
+
+        # Exclude background by default.
+        if not self.include_background:
+
+            if 0 in class_indices:
+                class_indices.remove(0)
+
+        # Exclude ignore_index if requested.
         if self.ignore_index is not None:
+
             if not 0 <= self.ignore_index < num_classes:
                 raise ValueError(
                     f"ignore_index must be in [0, {num_classes - 1}], "
                     f"got {self.ignore_index}."
                 )
 
-            keep = [
-                index
-                for index in range(num_classes)
-                if index != self.ignore_index
-            ]
+            if self.ignore_index in class_indices:
+                class_indices.remove(
+                    self.ignore_index
+                )
 
-            probabilities = probabilities[:, keep]
-            target_one_hot = target_one_hot[:, keep]
+        if not class_indices:
+            raise ValueError(
+                "No classes remain for Dice loss computation."
+            )
+
+        probabilities = probabilities[
+            :,
+            class_indices,
+        ]
+
+        target_one_hot = target_one_hot[
+            :,
+            class_indices,
+        ]
+
+        # ---------------------------------------------------------
+        # Flatten spatial dimensions
+        # ---------------------------------------------------------
 
         probabilities = probabilities.reshape(
             probabilities.shape[0],
@@ -97,18 +222,61 @@ class DiceLoss(nn.Module):
             -1,
         )
 
-        intersection = (probabilities * target_one_hot).sum(dim=2)
+        # ---------------------------------------------------------
+        # Dice per class
+        # ---------------------------------------------------------
+
+        intersection = (
+            probabilities * target_one_hot
+        ).sum(dim=2)
+
         denominator = (
-            probabilities.sum(dim=2) + target_one_hot.sum(dim=2)
+            probabilities.sum(dim=2)
+            + target_one_hot.sum(dim=2)
         )
 
         dice = (
-            2.0 * intersection + self.smooth
+            2.0 * intersection
+            + self.smooth
         ) / (
-            denominator + self.smooth
+            denominator
+            + self.smooth
         )
 
-        return 1.0 - dice.mean()
+        # Average over batch first.
+        dice = dice.mean(dim=0)
+
+        # ---------------------------------------------------------
+        # Class weighting
+        # ---------------------------------------------------------
+
+        if self.class_weights is not None:
+
+            weights = self.class_weights[
+                class_indices
+            ].to(
+                device=dice.device,
+                dtype=dice.dtype,
+            )
+
+            weight_sum = weights.sum()
+
+            if weight_sum <= 0:
+                raise ValueError(
+                    "Dice class weights must sum to a positive value."
+                )
+
+            loss = (
+                (1.0 - dice) * weights
+            ).sum() / weight_sum
+
+        else:
+
+            loss = (
+                1.0 - dice
+            ).mean()
+
+        return loss
 
 
 class CrossEntropySegmentationLoss(nn.Module):
@@ -191,7 +359,7 @@ class CrossEntropySegmentationLoss(nn.Module):
 
 
 class DiceCrossEntropyLoss(nn.Module):
-    """Weighted combination of Dice and cross-entropy losses."""
+    """Weighted combination of tumor-focused Dice and cross-entropy."""
 
     def __init__(
         self,
@@ -200,6 +368,7 @@ class DiceCrossEntropyLoss(nn.Module):
         smooth: float = 1e-6,
         ignore_index: Optional[int] = None,
         class_weights: Optional[Tensor] = None,
+        include_background: bool = False,
     ) -> None:
         super().__init__()
 
@@ -225,6 +394,8 @@ class DiceCrossEntropyLoss(nn.Module):
         self.dice_loss = DiceLoss(
             smooth=smooth,
             ignore_index=ignore_index,
+            class_weights=class_weights,
+            include_background=include_background,
         )
 
         self.cross_entropy_loss = CrossEntropySegmentationLoss(
@@ -237,7 +408,7 @@ class DiceCrossEntropyLoss(nn.Module):
         logits: Tensor,
         target: Tensor,
     ) -> Tensor:
-        """Compute the weighted Dice + cross-entropy loss."""
+        """Compute weighted Dice + cross-entropy loss."""
 
         dice = self.dice_loss(
             logits,

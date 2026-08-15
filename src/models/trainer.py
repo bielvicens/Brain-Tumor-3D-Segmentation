@@ -93,16 +93,33 @@ class Trainer:
                 ed_dice,
                 et_dice,
             )
+
+        Classes absent from both prediction and target are excluded
+        from the Dice averages.
         """
 
         self.model.eval()
 
         total_loss = 0.0
-        total_dice = 0.0
 
+        # --------------------------------------------------
+        # DICE ACCUMULATORS
+        #
+        # We keep separate sums and counts because a class may
+        # be absent from both prediction and target in a batch.
+        # Such a class returns NaN and must not contribute to
+        # the mean.
+        # --------------------------------------------------
+
+        total_dice = 0.0
         total_ncr_dice = 0.0
         total_ed_dice = 0.0
         total_et_dice = 0.0
+
+        valid_dice_count = 0
+        valid_ncr_count = 0
+        valid_ed_count = 0
+        valid_et_count = 0
 
         num_batches = 0
 
@@ -125,6 +142,10 @@ class Trainer:
                 non_blocking=True,
             )
 
+            # --------------------------------------------------
+            # FORWARD + LOSS
+            # --------------------------------------------------
+
             with torch.autocast(
                 device_type=self.device.type,
                 dtype=torch.float16,
@@ -143,24 +164,16 @@ class Trainer:
             )
 
             # --------------------------------------------------
-            # GLOBAL DICE
-            # --------------------------------------------------
-
-            dice = mean_dice(
-                prediction=predictions,
-                target=masks,
-                num_classes=logits.shape[1],
-                include_background=False,
-            )
-
-            # --------------------------------------------------
-            # INDIVIDUAL REGION DICE
+            # PER-CLASS DICE
             #
-            # Assumption:
-            #   class 0 = background
-            #   class 1 = NCR
-            #   class 2 = ED
-            #   class 3 = ET
+            # class_dice:
+            #   0 -> Background
+            #   1 -> NCR
+            #   2 -> ED
+            #   3 -> ET
+            #
+            # A class absent from both prediction and target
+            # returns NaN.
             # --------------------------------------------------
 
             class_dice = dice_per_class(
@@ -169,35 +182,133 @@ class Trainer:
                 num_classes=logits.shape[1],
             )
 
+            # --------------------------------------------------
+            # GLOBAL MEAN DICE
+            #
+            # Exclude background and ignore NaN classes.
+            # --------------------------------------------------
+
+            foreground_dice = class_dice[1:]
+
+            valid_foreground_dice = foreground_dice[
+                ~torch.isnan(foreground_dice)
+            ]
+
+            if valid_foreground_dice.numel() > 0:
+
+                dice = valid_foreground_dice.mean()
+
+                total_dice += float(
+                    dice.item()
+                )
+
+                valid_dice_count += 1
+
+            # --------------------------------------------------
+            # INDIVIDUAL REGION DICE
+            #
+            # class 1 = NCR
+            # class 2 = ED
+            # class 3 = ET
+            # --------------------------------------------------
+
             ncr_dice = class_dice[1]
             ed_dice = class_dice[2]
             et_dice = class_dice[3]
 
             # --------------------------------------------------
-            # ACCUMULATE
+            # NCR
             # --------------------------------------------------
 
-            total_loss += float(loss.item())
+            if not torch.isnan(ncr_dice):
 
-            total_dice += float(dice.item())
+                total_ncr_dice += float(
+                    ncr_dice.item()
+                )
 
-            total_ncr_dice += float(ncr_dice.item())
-            total_ed_dice += float(ed_dice.item())
-            total_et_dice += float(et_dice.item())
+                valid_ncr_count += 1
+
+            # --------------------------------------------------
+            # ED
+            # --------------------------------------------------
+
+            if not torch.isnan(ed_dice):
+
+                total_ed_dice += float(
+                    ed_dice.item()
+                )
+
+                valid_ed_count += 1
+
+            # --------------------------------------------------
+            # ET
+            # --------------------------------------------------
+
+            if not torch.isnan(et_dice):
+
+                total_et_dice += float(
+                    et_dice.item()
+                )
+
+                valid_et_count += 1
+
+            # --------------------------------------------------
+            # LOSS
+            # --------------------------------------------------
+
+            total_loss += float(
+                loss.item()
+            )
 
             num_batches += 1
+
+        # --------------------------------------------------
+        # EMPTY DATALOADER
+        # --------------------------------------------------
 
         if num_batches == 0:
             raise ValueError(
                 "Cannot validate on an empty dataloader."
             )
 
+        # --------------------------------------------------
+        # FINAL METRICS
+        # --------------------------------------------------
+
+        mean_loss = (
+            total_loss / num_batches
+        )
+
+        mean_dice = (
+            total_dice / valid_dice_count
+            if valid_dice_count > 0
+            else 0.0
+        )
+
+        ncr_dice = (
+            total_ncr_dice / valid_ncr_count
+            if valid_ncr_count > 0
+            else 0.0
+        )
+
+        ed_dice = (
+            total_ed_dice / valid_ed_count
+            if valid_ed_count > 0
+            else 0.0
+        )
+
+        et_dice = (
+            total_et_dice / valid_et_count
+            if valid_et_count > 0
+            else 0.0
+        )
+
         return (
-            total_loss / num_batches,
-            total_dice / num_batches,
-            total_ncr_dice / num_batches,
-            total_ed_dice / num_batches,
-            total_et_dice / num_batches,
+            mean_loss,
+            mean_dice,
+            ncr_dice,
+            ed_dice,
+            et_dice,
         )
 
     def train_epoch(
