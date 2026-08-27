@@ -77,8 +77,8 @@ class CheckpointConfig:
 class EarlyStoppingConfig:
     """Early stopping configuration."""
 
-    patience: int = 20
-    min_delta: float = 0.001
+    patience: int = 35
+    min_delta: float = 0.0
     mode: str = "max"
 
 

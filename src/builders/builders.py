@@ -88,7 +88,7 @@ def build_loss(config: ProjectConfig) -> DiceCrossEntropyLoss:
     class_weights = torch.tensor(
         [
             0.25,  # Background
-            6.0,   # NCR
+            4.0,   # NCR
             1.0,   # ED
             1.5,   # ET
         ],
@@ -168,12 +168,10 @@ def build_dataloader(
 
 def build_scheduler(
     optimizer: torch.optim.Optimizer,
-) -> torch.optim.lr_scheduler.ReduceLROnPlateau:
-    """Build a ReduceLROnPlateau scheduler monitoring validation NCR Dice."""
-    return torch.optim.lr_scheduler.ReduceLROnPlateau(
+) -> torch.optim.lr_scheduler.CosineAnnealingLR:
+    """Build a CosineAnnealingLR scheduler."""
+    return torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
-        mode="max",
-        factor=0.5,
-        patience=15,
-        min_lr=1e-6,
+        T_max=200,
+        eta_min=1e-6,
     )

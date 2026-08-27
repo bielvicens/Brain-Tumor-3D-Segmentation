@@ -597,14 +597,7 @@ class Trainer:
             # ==================================================
 
             if scheduler is not None:
-                if isinstance(
-                    scheduler,
-                    torch.optim.lr_scheduler.ReduceLROnPlateau,
-                ):
-                    if val_ncr_dice is not None:
-                        scheduler.step(val_ncr_dice)
-                else:
-                    scheduler.step()
+                scheduler.step()
 
             # ==================================================
             # CHECKPOINTS
