@@ -78,8 +78,8 @@ class EarlyStoppingConfig:
     """Early stopping configuration."""
 
     patience: int = 20
-    min_delta: float = 0.0
-    mode: str = "min"
+    min_delta: float = 0.001
+    mode: str = "max"
 
 
 # ============================================================================

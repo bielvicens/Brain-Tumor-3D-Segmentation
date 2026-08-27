@@ -13,6 +13,7 @@ from src.builders import (
     build_model,
     build_optimizer,
     build_pipeline,
+    build_scheduler,
 )
 from src.models import Trainer, TrainingHistory
 from torch.utils.data import DataLoader
@@ -85,6 +86,8 @@ def train(config: ProjectConfig) -> None:
         mode=config.early_stopping.mode,
     )
 
+    scheduler = build_scheduler(optimizer)
+
     checkpoint_dir = (
         Path(config.checkpoint.directory)
         / config.experiment.name
@@ -145,6 +148,7 @@ def train(config: ProjectConfig) -> None:
         history=history,
         checkpoint_dir=checkpoint_dir,
         early_stopping=early_stopping,
+        scheduler=scheduler,
     )
 
     # ------------------------------------------------------------------

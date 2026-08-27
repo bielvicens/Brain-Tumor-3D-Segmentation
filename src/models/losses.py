@@ -391,13 +391,12 @@ class DiceCrossEntropyLoss(nn.Module):
         self.dice_weight = float(dice_weight)
         self.ce_weight = float(ce_weight)
 
-        # Dice: podem excloure background
         self.dice_loss = DiceLoss(
             smooth=smooth,
             ignore_index=dice_ignore_index,
+            class_weights=class_weights,
         )
 
-        # Cross Entropy: mantenim background
         self.cross_entropy_loss = CrossEntropySegmentationLoss(
             ignore_index=ce_ignore_index,
             class_weights=class_weights,

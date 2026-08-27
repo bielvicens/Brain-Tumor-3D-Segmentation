@@ -64,7 +64,7 @@ def build_pipeline(
                     crop_size=(128, 128, 128),
                     probability=1.0,
                     tumor_probability=0.7,
-                    ncr_probability=0.35,
+                    ncr_probability=0.5,
                     min_ncr_voxels=100,
                     max_sampling_attempts=20,
                     min_tumor_voxels=500,
@@ -88,7 +88,7 @@ def build_loss(config: ProjectConfig) -> DiceCrossEntropyLoss:
     class_weights = torch.tensor(
         [
             0.25,  # Background
-            4.0,   # NCR
+            6.0,   # NCR
             1.0,   # ED
             1.5,   # ET
         ],
@@ -163,4 +163,17 @@ def build_dataloader(
         num_workers=config.data.num_workers,
         pin_memory=config.data.pin_memory,
         seed=config.experiment.seed,
+    )
+
+
+def build_scheduler(
+    optimizer: torch.optim.Optimizer,
+) -> torch.optim.lr_scheduler.ReduceLROnPlateau:
+    """Build a ReduceLROnPlateau scheduler monitoring validation NCR Dice."""
+    return torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="max",
+        factor=0.5,
+        patience=15,
+        min_lr=1e-6,
     )

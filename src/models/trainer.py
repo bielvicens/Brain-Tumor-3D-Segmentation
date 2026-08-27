@@ -16,7 +16,7 @@ import json
 import matplotlib.pyplot as plt
 
 from src.utils.early_stopping import EarlyStopping
-from src.utils.metrics import mean_dice, dice_per_class
+from src.utils.metrics import dice_per_class
 
 
 @dataclass
@@ -330,6 +330,11 @@ class Trainer:
         total_ed_dice = 0.0
         total_et_dice = 0.0
 
+        valid_dice_count = 0
+        valid_ncr_count = 0
+        valid_ed_count = 0
+        valid_et_count = 0
+
         for images, masks in dataloader:
             if masks is None:
                 raise ValueError("Training requires segmentation masks.")
@@ -347,7 +352,6 @@ class Trainer:
 
             self.optimizer.zero_grad(set_to_none=True)
 
-            # Mixed precision: FP16 activations on CUDA.
             with torch.autocast(
                 device_type=self.device.type,
                 dtype=torch.float16,
@@ -358,20 +362,39 @@ class Trainer:
 
             predictions = torch.argmax(logits, dim=1)
 
-            dice = mean_dice(
+            class_dice = dice_per_class(
                 prediction=predictions,
                 target=masks,
                 num_classes=logits.shape[1],
-                include_background=False,
             )
 
-            # Scaled backward pass for numerical stability.
+            foreground_dice = class_dice[1:]
+            valid_foreground_dice = foreground_dice[~torch.isnan(foreground_dice)]
+            if valid_foreground_dice.numel() > 0:
+                total_dice += float(valid_foreground_dice.mean().item())
+                valid_dice_count += 1
+
+            ncr_d = class_dice[1]
+            ed_d = class_dice[2]
+            et_d = class_dice[3]
+
+            if not torch.isnan(ncr_d):
+                total_ncr_dice += float(ncr_d.item())
+                valid_ncr_count += 1
+
+            if not torch.isnan(ed_d):
+                total_ed_dice += float(ed_d.item())
+                valid_ed_count += 1
+
+            if not torch.isnan(et_d):
+                total_et_dice += float(et_d.item())
+                valid_et_count += 1
+
             self.scaler.scale(loss).backward()
             self.scaler.step(self.optimizer)
             self.scaler.update()
 
             total_loss += float(loss.detach().item())
-            total_dice += float(dice.detach().item())
             num_batches += 1
 
             if progress_bar is not None:
@@ -379,7 +402,7 @@ class Trainer:
                 progress_bar.set_postfix(
                     epoch=f"{epoch + 1}/{epochs}",
                     loss=f"{loss.item():.4f}",
-                    dice=f"{dice.item():.4f}",
+                    ncr=f"{ncr_d.item() if not torch.isnan(ncr_d) else 0.0:.4f}",
                     lr=f"{self.optimizer.param_groups[0]['lr']:.2e}",
                 )
 
@@ -388,10 +411,10 @@ class Trainer:
 
         return (
             total_loss / num_batches,
-            total_dice / num_batches,
-            total_ncr_dice / num_batches,
-            total_ed_dice / num_batches,
-            total_et_dice / num_batches,
+            total_dice / valid_dice_count if valid_dice_count > 0 else 0.0,
+            total_ncr_dice / valid_ncr_count if valid_ncr_count > 0 else 0.0,
+            total_ed_dice / valid_ed_count if valid_ed_count > 0 else 0.0,
+            total_et_dice / valid_et_count if valid_et_count > 0 else 0.0,
         )
 
     def fit(
@@ -574,7 +597,14 @@ class Trainer:
             # ==================================================
 
             if scheduler is not None:
-                scheduler.step()
+                if isinstance(
+                    scheduler,
+                    torch.optim.lr_scheduler.ReduceLROnPlateau,
+                ):
+                    if val_ncr_dice is not None:
+                        scheduler.step(val_ncr_dice)
+                else:
+                    scheduler.step()
 
             # ==================================================
             # CHECKPOINTS

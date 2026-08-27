@@ -7,6 +7,7 @@ from .builders import (
     build_pipeline,
     build_datasets,
     build_dataloader,
+    build_scheduler,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "build_pipeline",
     "build_datasets",
     "build_dataloader",
+    "build_scheduler",
 ]
