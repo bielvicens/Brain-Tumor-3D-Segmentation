@@ -61,7 +61,7 @@ def build_pipeline(
         transforms.extend(
             [
                 RandomCrop3D(
-                    crop_size=(128, 128, 128),
+                    crop_size=(96, 96, 96),
                     probability=1.0,
                     tumor_probability=0.7,
                     ncr_probability=0.5,
@@ -109,7 +109,7 @@ def build_optimizer(
     config: ProjectConfig,
 ) -> torch.optim.Optimizer:
     """Build the optimizer used during training."""
-    return torch.optim.Adam(
+    return torch.optim.AdamW(
         model.parameters(),
         lr=config.training.learning_rate,
         weight_decay=config.training.weight_decay,
@@ -172,6 +172,6 @@ def build_scheduler(
     """Build a CosineAnnealingLR scheduler."""
     return torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
-        T_max=200,
+        T_max=250,
         eta_min=1e-6,
     )

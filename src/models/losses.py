@@ -38,7 +38,7 @@ class DiceLoss(nn.Module):
 
     def __init__(
         self,
-        smooth: float = 1e-6,
+        smooth: float = 1.0,
         ignore_index: Optional[int] = None,
         class_weights: Optional[Tensor] = None,
         include_background: bool = False,
@@ -365,7 +365,7 @@ class DiceCrossEntropyLoss(nn.Module):
         self,
         dice_weight: float = 1.0,
         ce_weight: float = 1.0,
-        smooth: float = 1e-6,
+        smooth: float = 1.0,
         dice_ignore_index: Optional[int] = None,
         ce_ignore_index: Optional[int] = None,
         class_weights: Optional[Tensor] = None,

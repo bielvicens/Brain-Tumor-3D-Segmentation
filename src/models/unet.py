@@ -27,7 +27,7 @@ class DoubleConv3D(nn.Module):
                 affine=True,
                 track_running_stats=False,
             ),
-            nn.ReLU(inplace=True),
+            nn.LeakyReLU(negative_slope=0.01, inplace=True),
             nn.Conv3d(
                 out_channels,
                 out_channels,
@@ -40,7 +40,7 @@ class DoubleConv3D(nn.Module):
                 affine=True,
                 track_running_stats=False,
             ),
-            nn.ReLU(inplace=True),
+            nn.LeakyReLU(negative_slope=0.01, inplace=True),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

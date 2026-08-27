@@ -48,10 +48,10 @@ class ModelConfig:
 class TrainingConfig:
     """Training hyperparameters."""
 
-    epochs: int = 100
+    epochs: int = 250
     batch_size: int = 2
-    learning_rate: float = 1e-4
-    weight_decay: float =  1e-5
+    learning_rate: float = 3e-4
+    weight_decay: float = 1e-4
     device: str = "cuda"
 
 
