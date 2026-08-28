@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 
 from src.utils.early_stopping import EarlyStopping
 from src.utils.metrics import dice_per_class
+from src.inference.sliding_window import SlidingWindowInference
 
 
 @dataclass
@@ -146,12 +147,24 @@ class Trainer:
             # FORWARD + LOSS
             # --------------------------------------------------
 
+            sliding_window = SlidingWindowInference(
+                patch_size=(96, 96, 96),
+                overlap=0.5,
+                device=self.device,
+            )
+
             with torch.autocast(
                 device_type=self.device.type,
                 dtype=torch.float16,
                 enabled=self.device.type == "cuda",
             ):
-                logits = self.model(images)
+                batch_logits = []
+                for i in range(images.shape[0]):
+                    single_image = images[i:i+1]
+                    probs = sliding_window.predict(self.model, single_image)
+                    batch_logits.append(torch.log(probs.clamp_min(1e-8)))
+                
+                logits = torch.stack(batch_logits, dim=0)
 
                 loss = self.criterion(
                     logits,
