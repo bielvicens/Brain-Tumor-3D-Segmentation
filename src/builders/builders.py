@@ -7,6 +7,8 @@ configured objects but contain no application logic.
 
 from __future__ import annotations
 
+from typing import Optional
+
 import torch
 
 from src.models import DiceCrossEntropyLoss, UNet3D
@@ -151,14 +153,24 @@ def build_datasets(
 def build_dataloader(
     dataset: BraTSDataset,
     config: ProjectConfig,
+    batch_size: Optional[int] = None,
 ):
-    """Build a DataLoader for a dataset."""
+    """Build a DataLoader for a dataset.
+    
+    Args:
+        dataset:
+            BraTSDataset to load from.
+        config:
+            Project configuration.
+        batch_size:
+            Optional batch size override. If None, uses config.training.batch_size.
+    """
 
     from src.data import create_dataloader
 
     return create_dataloader(
         dataset,
-        batch_size=config.training.batch_size,
+        batch_size=batch_size if batch_size is not None else config.training.batch_size,
         shuffle=config.data.shuffle,
         num_workers=config.data.num_workers,
         pin_memory=config.data.pin_memory,

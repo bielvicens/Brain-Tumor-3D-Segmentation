@@ -82,9 +82,18 @@ class Trainer:
     def validate_epoch(
         self,
         dataloader: DataLoader,
+        sliding_window_overlap: float = 0.25,
     ) -> tuple[float, float, float, float, float]:
         """
         Run one validation epoch.
+
+        Args:
+            dataloader:
+                Validation DataLoader.
+            sliding_window_overlap:
+                Overlap fraction for sliding window inference.
+                Lower values are faster but slightly less accurate.
+                Recommended: 0.25 for speed, 0.5 for accuracy.
 
         Returns:
             (
@@ -124,6 +133,12 @@ class Trainer:
 
         num_batches = 0
 
+        sliding_window = SlidingWindowInference(
+            patch_size=(96, 96, 96),
+            overlap=sliding_window_overlap,
+            device=self.device,
+        )
+
         for images, masks in dataloader:
 
             if masks is None:
@@ -146,12 +161,6 @@ class Trainer:
             # --------------------------------------------------
             # FORWARD + LOSS
             # --------------------------------------------------
-
-            sliding_window = SlidingWindowInference(
-                patch_size=(96, 96, 96),
-                overlap=0.5,
-                device=self.device,
-            )
 
             with torch.autocast(
                 device_type=self.device.type,
@@ -441,6 +450,8 @@ class Trainer:
         early_stopping: Optional[EarlyStopping] = None,
         checkpoint_dir: Optional[str | Path] = None,
         scheduler: Optional[LRScheduler] = None,
+        val_every_n_epochs: int = 1,
+        sliding_window_overlap: float = 0.25,
     ) -> TrainingHistory:
         """
         Train the model for ``epochs`` and optionally validate.
@@ -448,6 +459,30 @@ class Trainer:
         The best checkpoint is selected according to validation
         NCR Dice, because improving necrotic-core segmentation
         is the primary optimization objective.
+
+        Args:
+            train_loader:
+                DataLoader for training data.
+            val_loader:
+                Optional DataLoader for validation data.
+            epochs:
+                Total number of epochs to train.
+            start_epoch:
+                Starting epoch number (for resuming).
+            history:
+                Optional training history to continue.
+            early_stopping:
+                Optional early stopping callback.
+            checkpoint_dir:
+                Directory to save checkpoints.
+            scheduler:
+                Optional learning rate scheduler.
+            val_every_n_epochs:
+                Validate every N epochs. Default 1 (every epoch).
+                Set to 5 to validate every 5 epochs and speed up training.
+            sliding_window_overlap:
+                Overlap fraction for sliding window validation inference.
+                Lower values are faster. Recommended: 0.25 for speed, 0.5 for accuracy.
         """
 
         if epochs <= 0:
@@ -569,7 +604,17 @@ class Trainer:
             val_ed_dice = None
             val_et_dice = None
 
-            if val_loader is not None:
+            should_validate = (
+                val_loader is not None
+                and (epoch + 1) % val_every_n_epochs == 0
+            )
+
+            if should_validate:
+
+                print(
+                    f"\n[Epoch {epoch + 1}/{epochs}] "
+                    f"Running validation..."
+                )
 
                 (
                     val_loss,
@@ -578,7 +623,8 @@ class Trainer:
                     val_ed_dice,
                     val_et_dice,
                 ) = self.validate_epoch(
-                    val_loader
+                    val_loader,
+                    sliding_window_overlap=sliding_window_overlap,
                 )
 
                 # --------------------------------------------------
@@ -604,6 +650,16 @@ class Trainer:
                 history.val_et_dice.append(
                     val_et_dice
                 )
+            else:
+                # --------------------------------------------------
+                # SKIP VALIDATION BUT MAINTAIN HISTORY LENGTH
+                # --------------------------------------------------
+                if val_loader is not None:
+                    history.val_loss.append(None)
+                    history.val_dice.append(None)
+                    history.val_ncr_dice.append(None)
+                    history.val_ed_dice.append(None)
+                    history.val_et_dice.append(None)
 
             # ==================================================
             # SCHEDULER

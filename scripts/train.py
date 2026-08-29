@@ -59,6 +59,7 @@ def train(config: ProjectConfig) -> None:
     val_loader = build_dataloader(
         validation_dataset,
         config,
+        batch_size=1,
     )
 
     # ------------------------------------------------------------------
@@ -149,6 +150,8 @@ def train(config: ProjectConfig) -> None:
         checkpoint_dir=checkpoint_dir,
         early_stopping=early_stopping,
         scheduler=scheduler,
+        val_every_n_epochs=5,
+        sliding_window_overlap=0.25,
     )
 
     # ------------------------------------------------------------------
