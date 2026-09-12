@@ -1,11 +1,17 @@
 #  Brain Tumor 3D Segmentation using Deep Learning (BraTS)
 
-A modular, fully tested and production-ready deep learning framework for automatic brain tumor segmentation from multi-modal MRI volumes using a **3D U-Net** architecture.
+A modular deep learning framework for automatic brain tumor segmentation from multi-modal MRI volumes using a **3D U-Net** architecture.
 
-The project is built around the **BraTS (Brain Tumor Segmentation Challenge)** dataset and has been designed following modern software engineering principles, including modular architecture, comprehensive unit testing, reproducible preprocessing pipelines and reusable training/inference workflows.
+The project is built around the **BraTS (Brain Tumor Segmentation Challenge)** dataset and follows modern software engineering principles, including a modular architecture, automated tests, reproducible dataset splitting, composable preprocessing pipelines, and reusable training and inference workflows.
 
 Rather than being a simple research prototype, the project aims to provide a maintainable and extensible codebase suitable for experimentation, education and future research.
 
+
+![alt text](example_app.PNG)
+![PyTorch](https://img.shields.io/badge/PyTorch-%23EE4C2C.svg?style=for-the-badge&logo=PyTorch&logoColor=white)
+![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
+![Kaggle](https://img.shields.io/badge/Kaggle-035a7d?style=for-the-badge&logo=kaggle&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)
 ---
 
 ##  Features
@@ -24,11 +30,12 @@ Rather than being a simple research prototype, the project aims to provide a mai
     - Random intensity shifting
 -  PyTorch Dataset and DataLoader integration
 -  Dice + Cross Entropy hybrid loss
--  GPU/CPU compatible training
--  Automatic checkpoint saving
--  Early stopping support
+-  CUDA automatic mixed precision (AMP) training
+-  Tumor-aware 96³ patch sampling with NCR-focused crops
+-  Sliding-window validation and inference for full MRI volumes
+-  Automatic checkpoint saving and resumable training
+-  Early stopping based on validation NCR Dice
 -  Modular inference pipeline
--  Extensive automated test suite (520+ passing tests)
 -  Factory builders for reproducible component construction
 -  Clean architecture with clear separation of responsibilities
 
@@ -162,7 +169,8 @@ project/
 ├── tests/
 ├── scripts/
 │   ├── train.py
-│   └── predict.py
+│   ├── predict.py
+│   └── evaluate.py
 ├── requirements.txt
 └── README.md
 ```
@@ -179,7 +187,7 @@ The application is designed as a complete interface around the 3D U-Net segmenta
 
 From the project root, run:
 
-```bash
+```
 streamlit run app/Home.py
 ```
 
@@ -193,7 +201,7 @@ The application will open in the browser.
 
 The application is divided into several pages, each with a specific purpose:
 
-```text
+```
 Home
  ├── Predict
  ├── Evaluate
@@ -255,7 +263,7 @@ The checkpoint selector automatically detects available `.pt` checkpoints and pr
 
 The **Evaluate** page is used to quantitatively assess trained model checkpoints.
 
-It provides an evaluation interface for measuring the quality of the segmentation predictions against ground-truth masks.
+It provides an evaluation interface for measuring the quality of the segmentation predictions against ground-truth masks. Full-volume evaluation requires substantial GPU memory; the final reported experiment used sliding-window evaluation in a GPU notebook runtime.
 
 The evaluation is useful for:
 
@@ -301,13 +309,13 @@ It displays the metrics stored during training, including:
 
 The training history is stored as:
 
-```text
+```
 history.json
 ```
 
 and the corresponding plots are generated as:
 
-```text
+```
 loss.png
 dice.png
 ```
@@ -326,7 +334,7 @@ These results make it possible to identify:
 
 The recommended workflow for using the application is:
 
-```text
+```
 1. Train the model
        ↓
 2. Generate best.pt
@@ -350,9 +358,9 @@ A high Dice score alone does not guarantee that every individual segmentation is
 
 ---
 
-## Training the 3D U-Net on Google Colab
+## Training the 3D U-Net on a GPU Runtime
 
-The model can be trained on **Google Colab** using a GPU, which is particularly useful because 3D U-Net training is computationally expensive and requires significant GPU memory.
+The model can be trained on a GPU runtime such as Google Colab or Kaggle Notebooks. This is particularly useful because 3D U-Net training is computationally expensive and requires significant GPU memory.
 
 The training pipeline supports:
 
@@ -370,41 +378,41 @@ The training pipeline supports:
 
 ### 1. Upload or clone the project
 
-First, make the project available in the Colab environment.
+First, make the project available in the selected notebook environment.
 
-For example, if the project is hosted on GitHub:
+For example, in Google Colab:
 
-```bash
-!git clone <YOUR_REPOSITORY_URL>
-%cd <YOUR_PROJECT_DIRECTORY>
+```
+!git clone https://github.com/bielvicens/Brain-Tumor-3D-Segmentation.git
+%cd Brain-Tumor-3D-Segmentation
 ```
 
 Install the required dependencies:
 
-```bash
+```
 !pip install -r requirements.txt
 ```
 
-Make sure that the BraTS dataset is also accessible from Colab.
-
-For large datasets, Google Drive can be used instead of uploading the dataset directly to the Colab runtime.
+Make sure that the BraTS dataset is also accessible from the notebook runtime. For large datasets, Google Drive can be used in Colab, while Kaggle Datasets can be attached directly to a Kaggle Notebook.
 
 ---
 
 ### 2. Enable the GPU
 
-In Colab, enable GPU acceleration through:
+In Google Colab, enable GPU acceleration through:
 
-```text
+```
 Runtime
 → Change runtime type
 → Hardware accelerator
 → GPU
 ```
 
+In Kaggle Notebooks, enable an accelerator in the notebook settings before running the training cells.
+
 Then verify that PyTorch can access the GPU:
 
-```python
+```
 import torch
 
 print(torch.cuda.is_available())
@@ -421,17 +429,17 @@ The training configuration is controlled through `ProjectConfig`.
 
 The main training parameters include:
 
-```python
-epochs: int = 100
+```
+epochs: int = 250
 batch_size: int = 2
-learning_rate: float = 1e-4
-weight_decay: float = 1e-5
+learning_rate: float = 3e-4
+weight_decay: float = 1e-4
 device: str = "cuda"
 ```
 
 The model configuration currently uses:
 
-```python
+```
 in_channels = 4
 out_channels = 4
 base_channels = 32
@@ -441,7 +449,7 @@ The four input channels correspond to the four MRI modalities used by the projec
 
 The model predicts four segmentation classes:
 
-```text
+```
 0 → Background
 1 → NCR
 2 → ED
@@ -456,12 +464,12 @@ During training, the data is processed using the training preprocessing pipeline
 
 The current pipeline includes:
 
-```text
+```
 Z-score normalization
         ↓
 Resampling to 1 × 1 × 1 mm
         ↓
-Random 3D crop (128 × 128 × 128)
+Tumor-aware RandomCrop3D (96 × 96 × 96)
         ↓
 Random flip
         ↓
@@ -476,78 +484,31 @@ Random intensity shift
 
 The random crop is particularly important for 3D training because processing complete MRI volumes would require considerably more GPU memory.
 
-The validation pipeline does not use the random augmentations:
+The validation pipeline does not use random augmentations or cropping:
 
-```text
+```
 Z-score normalization
         ↓
 Resampling to 1 × 1 × 1 mm
         ↓
-Center crop (128 × 128 × 128)
+Full resampled volume
+        ↓
+Sliding-window inference (96 × 96 × 96, overlap 0.25)
 ```
 
-This ensures that validation measurements are performed on deterministic preprocessing rather than random training augmentations.
+This produces deterministic full-volume validation while keeping GPU memory bounded.
 
 ---
 
 ### 5. Start training
 
-The main training cell creates the datasets, dataloaders, model, optimizer, loss function and trainer.
+The main training entry point builds the datasets, dataloaders, model, optimizer, loss function and trainer:
 
-A typical training cell is:
-
-```python
-from src.builders import (
-    build_dataloader,
-    build_loss,
-    build_model,
-    build_optimizer,
-)
-
-from src.models import Trainer
-from src.utils import EarlyStopping
-
-train_loader = build_dataloader(
-    train_dataset,
-    config,
-)
-
-validation_loader = build_dataloader(
-    validation_dataset,
-    config,
-)
-
-model = build_model(config)
-
-optimizer = build_optimizer(
-    model,
-    config,
-)
-
-criterion = build_loss(config)
-
-trainer = Trainer(
-    model=model,
-    optimizer=optimizer,
-    criterion=criterion,
-    device=config.training.device,
-)
-
-early_stopping = EarlyStopping(
-    patience=config.early_stopping.patience,
-    min_delta=config.early_stopping.min_delta,
-)
-
-history = trainer.fit(
-    train_loader=train_loader,
-    val_loader=validation_loader,
-    epochs=config.training.epochs,
-    early_stopping=early_stopping,
-    checkpoint_dir=config.checkpoint.directory,
-)
-
-print("Training finished!")
 ```
+python scripts/train.py
+```
+
+By default it uses batch size 2 for training, batch size 1 for full-volume validation, CUDA AMP when available, AdamW, cosine learning-rate decay, and validation every five epochs. The best model is selected by validation NCR Dice.
 
 ---
 
@@ -557,7 +518,7 @@ During training, the `Trainer` saves checkpoints to the configured checkpoint di
 
 The important files are:
 
-```text
+```
 checkpoints/
 └── <experiment_name>/
     ├── last.pt
@@ -574,12 +535,12 @@ checkpoints/
 It is useful for:
 
 * Resuming interrupted training.
-* Recovering from a Colab disconnection.
+* Recovering from a notebook runtime disconnection.
 * Continuing training at a later time.
 
 ### `best.pt`
 
-`best.pt` contains the checkpoint corresponding to the best validation loss observed during the training run.
+`best.pt` contains the checkpoint with the highest validation NCR Dice observed during the training run.
 
 It should generally be preferred for inference and final evaluation rather than simply using the final epoch.
 
@@ -587,7 +548,7 @@ It should generally be preferred for inference and final evaluation rather than 
 
 Contains the recorded training metrics:
 
-```json
+```
 {
     "train_loss": [],
     "val_loss": [],
@@ -610,17 +571,17 @@ Shows the training and validation Dice curves.
 
 One of the most important features of the training pipeline is the ability to **resume training from a checkpoint**.
 
-This is particularly useful with Google Colab because Colab sessions can disconnect or terminate before the desired number of epochs has been completed.
+This is particularly useful with notebook runtimes because sessions can disconnect or terminate before the desired number of epochs has been completed.
 
 For example, suppose the model has completed 100 epochs:
 
-```text
+```
 Epoch 100 / 100
 ```
 
 and the training produced:
 
-```text
+```
 last.pt
 best.pt
 ```
@@ -629,15 +590,15 @@ The `last.pt` checkpoint can be used to continue training instead of starting ag
 
 ---
 
-## Important: persistent storage in Colab
+## Important: persistent notebook storage
 
-For resume training to be useful, checkpoints should **not only be stored in the temporary Colab runtime**.
+For resume training to be useful, checkpoints should **not only be stored in the temporary notebook runtime**.
 
-If the Colab runtime is deleted, files stored only inside the runtime are lost.
+If the runtime is deleted, files stored only inside it are lost.
 
-A recommended setup is to store the project/checkpoints in Google Drive:
+For Google Colab, a recommended setup is to store checkpoints in Google Drive:
 
-```python
+```
 from google.colab import drive
 
 drive.mount("/content/drive")
@@ -647,7 +608,7 @@ Then configure the checkpoint directory to point to a persistent location in Dri
 
 For example:
 
-```text
+```
 /content/drive/MyDrive/brain_tumor_project/checkpoints/
 ```
 
@@ -659,7 +620,7 @@ This allows the checkpoint to survive a Colab runtime restart.
 
 When resuming training, the following states need to be restored:
 
-```text
+```
 Model weights
 Optimizer state
 Epoch
@@ -668,7 +629,7 @@ Training history
 
 The checkpoint already stores the model and optimizer states:
 
-```python
+```
 checkpoint = {
     "epoch": epoch,
     "model_state_dict": self.model.state_dict(),
@@ -679,7 +640,7 @@ checkpoint = {
 
 The resume workflow is therefore:
 
-```text
+```
 Colab starts
     ↓
 Mount Google Drive
@@ -703,13 +664,13 @@ A resumed training run should **not initialise a new model and optimizer and the
 
 Assuming the checkpoint is located at:
 
-```text
+```
 /content/drive/MyDrive/brain_tumor_project/checkpoints/<experiment_name>/last.pt
 ```
 
 the model and optimizer should first be created normally:
 
-```python
+```
 model = build_model(config)
 
 optimizer = build_optimizer(
@@ -722,7 +683,7 @@ criterion = build_loss(config)
 
 Then the checkpoint can be loaded:
 
-```python
+```
 import torch
 
 checkpoint = torch.load(
@@ -747,7 +708,7 @@ The training should then continue from that epoch rather than starting again fro
 
 For example:
 
-```text
+```
 Previous run:
 Epoch 1  → ... → Epoch 100
 
@@ -761,13 +722,13 @@ Epoch 101 → Epoch 102 → ... → Epoch 200
 
 If the original configuration was:
 
-```python
+```
 epochs = 100
 ```
 
 and the model has already completed 100 epochs, change the configuration to:
 
-```python
+```
 epochs = 200
 ```
 
@@ -775,7 +736,7 @@ The intention is that the resumed run continues training until the new target is
 
 Therefore:
 
-```text
+```
 Initial run:
 0 → 100
 
@@ -785,7 +746,7 @@ Resumed run:
 
 rather than:
 
-```text
+```
 0 → 200
 ```
 
@@ -803,7 +764,7 @@ With checkpoints, a training run does not need to finish in a single Colab sessi
 
 For example:
 
-```text
+```
 Session 1
 Epoch 1 → 100
        ↓
@@ -826,13 +787,13 @@ This makes it possible to progressively train the model while reducing the risk 
 
 For experimentation, it is useful to start with:
 
-```python
+```
 epochs = 100
 ```
 
 and inspect:
 
-```text
+```
 Training Loss
 Validation Loss
 Training Dice
@@ -843,7 +804,7 @@ If validation performance is still clearly improving at the end of the run, trai
 
 For example:
 
-```text
+```
 100 epochs
    ↓
 Inspect results
@@ -866,7 +827,7 @@ The model should ultimately be selected based on **validation performance**, rat
 
 Once training is complete:
 
-```text
+```
 best.pt
    ↓
 Test set
@@ -921,7 +882,7 @@ The project has been developed and tested using:
 
 ## Clone the repository
 
-```bash
+```
 git clone https://github.com/bielvicens/Brain-Tumor-3D-Segmentation.git
 
 cd Brain-Tumor-3D-Segmentation
@@ -933,7 +894,7 @@ cd Brain-Tumor-3D-Segmentation
 
 ### Windows
 
-```bash
+```
 python -m venv .venv
 
 .venv\Scripts\activate
@@ -941,7 +902,7 @@ python -m venv .venv
 
 ### Linux / macOS
 
-```bash
+```
 python3 -m venv .venv
 
 source .venv/bin/activate
@@ -951,7 +912,7 @@ source .venv/bin/activate
 
 ## Install dependencies
 
-```bash
+```
 pip install -r requirements.txt
 ```
 
@@ -967,7 +928,7 @@ https://www.synapse.org/Synapse:syn25829067
 
 After downloading and extracting the dataset, organize it as follows:
 
-```text
+```
 project/
 
 ├── data/
@@ -997,14 +958,14 @@ The project is configured through the `ProjectConfig` class.
 
 Example configuration:
 
-```python
+```
 config = ProjectConfig()
 
 config.training.batch_size = 2
-config.training.epochs = 100
-config.training.learning_rate = 1e-4
+config.training.epochs = 250
+config.training.learning_rate = 3e-4
 
-config.model.base_channels = 16
+config.model.base_channels = 32
 
 config.training.device = "cuda"
 ```
@@ -1019,8 +980,8 @@ Training, validation and inference are entirely controlled through the configura
 
 Launch a complete training session with:
 
-```bash
-python train.py
+```
+python scripts/train.py
 ```
 
 During training the framework automatically:
@@ -1071,23 +1032,23 @@ Checkpoint
 
 After training, checkpoints are automatically saved inside:
 
-```text
+```
 checkpoints/
 ```
 
 Typical output:
 
-```text
+```
 checkpoints/
-
-├── best.pt
-└── last.pt
+└── brats_segmentation/
+    ├── best.pt
+    └── last.pt
 ```
 
 where:
 
-- **best.pt** stores the model with the lowest validation loss.
-- **last.pt** stores the final epoch.
+- **best.pt** stores the model with the highest validation NCR Dice.
+- **last.pt** stores the latest completed epoch and supports resuming interrupted training.
 
 #  Preprocessing Pipeline
 
@@ -1134,7 +1095,7 @@ Preprocessed Sample
 
 All preprocessing operations work on a single immutable object:
 
-```python
+```
 PreprocessingSample
 ```
 
@@ -1149,7 +1110,7 @@ This object contains everything required to process a patient:
 
 Instead of modifying the sample in-place, every transform returns a **new** sample using:
 
-```python
+```
 sample.replace(...)
 ```
 
@@ -1161,13 +1122,13 @@ This guarantees that preprocessing remains deterministic, side-effect free and e
 
 Every preprocessing operation inherits from the same abstract base class:
 
-```python
+```
 class Transform
 ```
 
 Each transform implements a single method:
 
-```python
+```
 apply(sample)
 ```
 
@@ -1251,7 +1212,7 @@ Applies a random rotation of
 - 180°
 - 270°
 
-around a randomly selected anatomical plane.
+in the configured spatial plane.
 
 Rotations preserve voxel spacing and introduce no interpolation artifacts.
 
@@ -1346,7 +1307,7 @@ The preprocessing framework was designed with extensibility in mind.
 
 Adding a new preprocessing operation only requires implementing:
 
-```python
+```
 class MyTransform(Transform):
 
     def apply(self, sample):
@@ -1409,9 +1370,6 @@ The implementation is intentionally modular, with each building block encapsulat
              Up3D ◄──────────── Skip
                 │
                 ▼
-             Up3D ◄──────────── Skip
-                │
-                ▼
              1×1×1 Conv3D
                 │
                 ▼
@@ -1428,8 +1386,8 @@ Each encoder stage consists of:
 
 - Max Pooling (downsampling)
 - Double 3D Convolution
-- Batch Normalization
-- ReLU activation
+- Instance normalization
+- LeakyReLU activation
 
 As spatial resolution decreases, the number of feature channels increases.
 
@@ -1439,8 +1397,6 @@ Example:
 4 channels
       │
       ▼
-16
-      ▼
 32
       ▼
 64
@@ -1448,6 +1404,8 @@ Example:
 128
       ▼
 256
+      ▼
+512
 ```
 
 ---
@@ -1639,7 +1597,7 @@ and
 best.pt
 ```
 
-The checkpoint with the lowest validation loss.
+The checkpoint with the highest validation NCR Dice.
 
 Each checkpoint contains:
 
@@ -1656,7 +1614,7 @@ allowing training to be resumed or the best-performing model to be used for infe
 
 The framework automatically detects CUDA when available.
 
-```python
+```
 device = "cuda" if torch.cuda.is_available() else "cpu"
 ```
 
@@ -1696,8 +1654,8 @@ prediction.npy
 
 Run inference with:
 
-```bash
-python predict.py
+```
+python scripts/predict.py
 ```
 
 The framework automatically:
@@ -1711,13 +1669,13 @@ The framework automatically:
 
 Predictions are stored inside:
 
-```text
+```
 predictions/
 ```
 
 Example:
 
-```text
+```
 predictions/
 └── BraTS-GLI-00001_prediction.npy
 ```
@@ -1728,15 +1686,7 @@ predictions/
 
 A major objective of this project was software reliability.
 
-The project includes an extensive automated test suite covering every major component of the framework.
-
-Current status:
-
-```
-520 passing tests
-```
-
-The test suite includes:
+The project includes automated tests covering the major components of the framework, including:
 
 - Unit tests
 - Integration tests
@@ -1752,13 +1702,13 @@ The test suite includes:
 
 Example:
 
-```bash
+```
 pytest
 ```
 
 or
 
-```bash
+```
 pytest -v
 ```
 
@@ -1795,30 +1745,41 @@ This ensures every major subsystem works correctly together.
 
 #  Results
 
-The framework has been fully implemented and validated through automated testing.
+## Experimental setup
 
-Training experiments and quantitative evaluation will be added after running full-scale experiments on Google Colab using GPU acceleration.
+The reported experiment used a patient-wise 80/20 train/validation split with seed 42. The evaluated checkpoint was selected at epoch 50 by the highest validation NCR Dice during training. Training used a 3D U-Net with four MRI input modalities, `base_channels=32`, a weighted Dice + Cross Entropy loss, AdamW, CUDA AMP, and tumor-aware 96³ crops. Validation and final evaluation used full resampled volumes with 96³ sliding-window inference and an overlap of 0.25.
 
-Future versions of this section will include:
+The final evaluation covered 198 patients from the validation partition. Metrics below are patient-level averages across foreground classes; background is excluded.
 
-- Dice Score
-- Validation Loss
-- Learning Curves
-- Example Segmentations
-- Qualitative Comparisons
-- Performance Analysis
+| Region | Mean Dice | Dice Std. Dev. | Median Dice | Mean IoU |
+|--------|----------:|---------------:|------------:|---------:|
+| NCR | 0.7190 | 0.2887 | 0.8394 | 0.6356 |
+| ED | 0.7821 | 0.1920 | 0.8584 | 0.6760 |
+| ET | 0.7925 | 0.2554 | 0.8952 | 0.7113 |
+| **Mean foreground Dice** | **0.7590** | — | — | — |
 
-Example layout:
+## Interpretation
 
-```
-Results/
+The model obtains a mean foreground Dice of **0.7590**, indicating substantial overlap between predicted and reference tumor regions across the validation cohort. Enhancing tumor (ET) is the strongest region, followed by edema (ED). NCR is the most difficult region: although its median Dice is 0.8394, its higher standard deviation and zero-Dice cases show that performance is less reliable for difficult or very small necrotic regions.
 
-├── learning_curve.png
-├── dice_curve.png
-├── prediction_01.png
-├── prediction_02.png
-└── prediction_03.png
-```
+The gap between the mean and median scores, especially for NCR and ET, indicates a minority of challenging cases rather than uniformly weak performance. This should be complemented with qualitative inspection in the Predict page, since an aggregate Dice score cannot describe every individual segmentation equally well.
+
+These results support the use of tumor-aware and NCR-focused crop sampling: the model achieves useful NCR performance despite the marked class imbalance. However, this experiment does not isolate the causal contribution of any single augmentation, so that conclusion should be treated as an empirical observation rather than an ablation result.
+
+## Evaluation limitations
+
+The reported cohort is the validation split used during model development and checkpoint selection. It is therefore a validation result, **not an independent held-out test result**. A future study should retain an untouched test set, or use cross-validation, before making a stronger claim about generalisation. The reproducible split seed, preprocessing, crop policy, and sliding-window settings should be kept fixed when comparing future experiments.
+
+## Pretrained checkpoint
+
+You can download the final trained weights (`best.pt`) from the [latest release](https://github.com/bielvicens/Brain-Tumor-3D-Segmentation/releases/tag/v1.0).
+
+| Artifact | Value |
+|----------|-------|
+| Checkpoint | `best.pt` |
+| Selected epoch | 50 |
+| SHA-256 | `8005a01a69d34bb58e9bf9d3c5ae99d24ceaca67c62e009f0b44ef11f0a0ee87` |
+| Size | 255,906,893 bytes |
 
 ---
 
@@ -1828,9 +1789,6 @@ The modular architecture allows straightforward extension of the framework.
 
 Possible future improvements include:
 
-- Mixed Precision Training (AMP)
-- Sliding Window Inference
-- Patch-based Training
 - Deep Supervision
 - Attention U-Net
 - Residual U-Net
