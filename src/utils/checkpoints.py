@@ -234,7 +234,15 @@ def load_checkpoint(
             f"Checkpoint at '{resolved_path}' is missing required key(s): {missing_keys}."
         )
 
-    model.load_state_dict(checkpoint["model_state_dict"])
+    model_state_dict = checkpoint["model_state_dict"]
+
+    if all(key.startswith("module.") for key in model_state_dict):
+        model_state_dict = {
+            key.removeprefix("module."): value
+            for key, value in model_state_dict.items()
+        }
+
+    model.load_state_dict(model_state_dict)
 
     if optimizer is not None:
         if "optimizer_state_dict" not in checkpoint:

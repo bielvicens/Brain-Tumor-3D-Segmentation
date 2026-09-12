@@ -134,6 +134,32 @@ def test_model_restored_exactly_matches_source_values() -> None:
             assert torch.all(param == 3.1415)
 
 
+def test_load_checkpoint_removes_dataparallel_prefix(tmp_path: Path) -> None:
+    source_model = _make_model()
+    path = tmp_path / "dataparallel.pt"
+
+    torch.save(
+        {
+            "model_state_dict": {
+                f"module.{key}": value
+                for key, value in source_model.state_dict().items()
+            },
+            "epoch": 3,
+            "history": {},
+            "metadata": {},
+        },
+        path,
+    )
+
+    target_model = _TinyModel()
+    load_checkpoint(path, target_model)
+
+    _assert_state_dicts_equal(
+        source_model.state_dict(),
+        target_model.state_dict(),
+    )
+
+
 # ----------------------------------------------------------------------
 # Optimizer restoration
 # ----------------------------------------------------------------------
